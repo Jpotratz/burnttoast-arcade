@@ -30,11 +30,11 @@ if (-not (Test-Path $jar)) {
 # --- compile main sources, then tests -------------------------------------
 Write-Host "Compiling main sources -> bin ..."
 New-Item -ItemType Directory -Force -Path bin | Out-Null
-& $javac -d bin (Get-ChildItem -Recurse src\*.java).FullName
+& $javac -encoding UTF-8 -d bin (Get-ChildItem -Recurse src\*.java).FullName
 
 Write-Host "Compiling tests -> bin-test ..."
 New-Item -ItemType Directory -Force -Path bin-test | Out-Null
-& $javac -cp "bin;$jar" -d bin-test (Get-ChildItem -Recurse test\*.java).FullName
+& $javac -encoding UTF-8 -cp "bin;$jar" -d bin-test (Get-ChildItem -Recurse test\*.java).FullName
 
 # --- run the tests --------------------------------------------------------
 Write-Host "Running tests ..."

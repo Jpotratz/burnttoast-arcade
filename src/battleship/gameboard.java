@@ -1,56 +1,71 @@
 // James Potratz CSIS 222 - MCC (v2)
-// The JavaFX front-end for Battleship v2. Three scenes, swapped on one Stage:
-//   1) Start   - pick difficulty + cheat, in-scene (no more popup dialogs).
-//   2) Placement - click to place your own five ships (R to rotate).
-//   3) Battle  - your fleet (left) vs enemy waters (right); you and the computer
-//                fire on alternating turns, results shown in color.
-// All rules live in the pure classes (BoardState, Fleet, Ship, ShipPlacement) and
-// the computer's targeting lives behind the Opponent interface (OllamaOpponent,
-// backed by RandomOpponent). This class is only the UI + turn flow.
+// The JavaFX front-end for Battleship v2 -- a neon-arcade redesign. Three scenes
+// swapped on one Stage: Start -> Placement -> Battle. The board tile size is
+// computed from the actual screen so the layout fits (important on high-DPI
+// displays where the logical canvas is small). All game rules live in the pure
+// classes (BoardState, Fleet, Ship, ShipPlacement); the computer's targeting lives
+// behind the Opponent interface (OllamaOpponent + RandomOpponent fallback). This
+// class is only presentation, animation, and turn flow.
 
 package battleship;
 
 import java.util.Random;
 
+import javafx.animation.FadeTransition;
+import javafx.animation.Interpolator;
+import javafx.animation.ScaleTransition;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
-import javafx.scene.Parent;
+import javafx.geometry.Rectangle2D;
+import javafx.scene.Node;
 import javafx.scene.Scene;
-import javafx.scene.control.Alert;
-import javafx.scene.control.Alert.AlertType;
 import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.RadioButton;
 import javafx.scene.control.ToggleGroup;
+import javafx.scene.effect.DropShadow;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.MouseButton;
-import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
+import javafx.scene.shape.Circle;
+import javafx.scene.shape.Line;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Font;
+import javafx.scene.text.FontWeight;
 import javafx.scene.text.Text;
+import javafx.stage.Screen;
 import javafx.stage.Stage;
+import javafx.util.Duration;
 
 public class gameboard extends Application {
 
-	// ---- layout + color constants -------------------------------------------
-	private static final int TILE = 50; // pixel size of one grid cell
-	private static final int GAP = 60; // gap between the two battle boards
-	private static final int TITLE_H = 34; // headroom above the boards for titles
+	// ---- neon palette --------------------------------------------------------
+	private static final Color BG = Color.web("#0b0e17");
+	private static final Color PANEL_BG = Color.web("#121627");
+	private static final Color CYAN = Color.web("#25e7ff");
+	private static final Color MAGENTA = Color.web("#ff3ea5");
+	private static final Color GREEN = Color.web("#38e07b");
+	private static final Color YELLOW = Color.web("#ffd23e");
+	private static final Color RED = Color.web("#ff4d5e");
+	private static final Color WATER = Color.web("#0f1c34");
+	private static final Color GRID = Color.web("#1f6f8b");
+	private static final Color MISS_MARK = Color.web("#6f8bb0");
+	private static final Color SHIP_FILL = Color.web("#2a1533");
+	private static final Color SHIP_BODY = Color.web("#b04cff");
 
-	private static final Color WATER = Color.web("#9fd3e0"); // unshot water
-	private static final Color MISS = Color.web("#b8c2c9"); // shot, empty
-	private static final Color HIT = Color.web("#d64545"); // shot a ship
-	private static final Color SUNK = Color.web("#7a1f1f"); // a fully sunk ship
-	private static final Color OWN_SHIP = Color.web("#51606b"); // your unhit ship
+	// ---- layout budget (logical px) -----------------------------------------
+	private static final int PANEL_W = 300;
+	private static final int GAP = 26;
+	private static final int BANNER_H = 62;
 
-	// ---- Ollama opponent config (easy to change) ----------------------------
+	// ---- Ollama opponent config ---------------------------------------------
 	private static final String OLLAMA_URL = "http://192.168.1.210:30068";
 	private static final String OLLAMA_MODEL = "qwen2.5:7b";
 
@@ -58,27 +73,31 @@ public class gameboard extends Application {
 	private Stage stage;
 	private final Random rng = new Random();
 	public static boolean revealMapCheat = false;
-	public static Scoreboard scoreboard = new Scoreboard();
+	private int tileSize = 46; // recomputed per screen to fit the display
 
 	// ---- placement-screen state ---------------------------------------------
 	private Tile[][] placeTiles;
-	private int placeIndex; // which ship (0..4) we're placing next
-	private boolean placeHorizontal = true; // current placement orientation
+	private int placeIndex;
+	private boolean placeHorizontal = true;
 	private Label placePrompt;
 	private Button startBattleBtn;
 
 	// ---- battle state --------------------------------------------------------
-	private Pane battleRoot;
-	private BoardState playerBoard; // your fleet; the AI fires here
-	private BoardState enemyBoard; // enemy fleet; you fire here
+	private BoardState playerBoard;
+	private BoardState enemyBoard;
 	private Tile[][] playerTiles;
 	private Tile[][] enemyTiles;
 	private Opponent opponent;
-	private boolean inputLocked = false; // true while the AI is taking its turn
-	private String playerAction = "Fire at the enemy waters on the right.";
-	private String aiAction = "Waiting for your first shot...";
+	private boolean inputLocked = false;
+	private StackPane battleStack; // holds the game + the win/lose overlay
+	private Label banner;
+	private FadeTransition bannerPulse;
+	private Label lblYourShips;
+	private Label lblEnemyShips;
+	private Label lblAccuracy;
+	private Label lblYou;
+	private Label lblAi;
 
-	// A cell-click callback, so a grid can do different things on different screens.
 	private interface CellHandler {
 		void handle(int x, int y);
 	}
@@ -89,6 +108,7 @@ public class gameboard extends Application {
 		stage.setTitle("Battleship v2");
 		showStartScreen();
 		stage.show();
+		stage.centerOnScreen();
 		stage.toFront();
 	}
 
@@ -97,39 +117,40 @@ public class gameboard extends Application {
 	// =========================================================================
 
 	private void showStartScreen() {
-		Text title = new Text("BATTLESHIP v2");
-		title.setFont(Font.font(40));
-		Text credit = new Text("by James Potratz");
-		credit.setFont(Font.font(16));
+		Label title = neonLabel("BATTLESHIP", 60, CYAN);
+		Label subtitle = neonLabel("// v2  ::  neon fleet command", 18, MAGENTA);
 
 		ToggleGroup difficulty = new ToggleGroup();
-		RadioButton beginner = difficultyOption("Beginner  (6 x 6)", 1, difficulty);
-		RadioButton standard = difficultyOption("Standard  (9 x 9)", 2, difficulty);
-		RadioButton advanced = difficultyOption("Advanced  (12 x 12)", 3, difficulty);
+		RadioButton beginner = difficultyOption("BEGINNER   6 x 6", 1, difficulty);
+		RadioButton standard = difficultyOption("STANDARD   9 x 9", 2, difficulty);
+		RadioButton advanced = difficultyOption("ADVANCED   12 x 12", 3, difficulty);
 		standard.setSelected(true);
 
 		CheckBox cheat = new CheckBox("Reveal the enemy fleet (cheat)");
+		styleCheck(cheat);
 
-		Button startBtn = new Button("Start");
-		startBtn.setFont(Font.font(18));
+		Button startBtn = neonButton("DEPLOY  ▶", CYAN);
 		startBtn.setOnAction(e -> {
 			battleship.difficulty = (int) difficulty.getSelectedToggle().getUserData();
 			revealMapCheat = cheat.isSelected();
 			showPlacementScreen();
 		});
 
-		VBox box = new VBox(14, title, credit, new Label("Choose your difficulty:"), beginner, standard, advanced,
-				cheat, startBtn);
+		Label pick = neonLabel("CHOOSE DIFFICULTY", 16, CYAN);
+		VBox box = new VBox(18, title, subtitle, spacer(10), pick, beginner, standard, advanced, spacer(4), cheat,
+				spacer(10), startBtn);
 		box.setAlignment(Pos.CENTER);
-		box.setPadding(new Insets(30));
-		stage.setScene(new Scene(box, 520, 460));
+		box.setPadding(new Insets(40));
+		box.setBackground(solid(BG));
+		stage.setScene(new Scene(box, 620, 560));
 	}
 
 	private RadioButton difficultyOption(String text, int value, ToggleGroup group) {
 		RadioButton rb = new RadioButton(text);
 		rb.setUserData(value);
 		rb.setToggleGroup(group);
-		rb.setFont(Font.font(16));
+		rb.setTextFill(Color.web("#c9e9ff"));
+		rb.setFont(mono(16, FontWeight.NORMAL));
 		return rb;
 	}
 
@@ -139,49 +160,51 @@ public class gameboard extends Application {
 
 	private void showPlacementScreen() {
 		int size = boardSizeForDifficulty(battleship.difficulty);
+		tileSize = computeTileSize(size, 1);
 		playerBoard = new BoardState(size);
 		placeIndex = 0;
 		placeHorizontal = true;
 
 		Pane boardPane = new Pane();
-		placeTiles = buildGrid(boardPane, size, 0, this::handlePlacementClick);
+		placeTiles = buildGrid(boardPane, size, this::handlePlacementClick);
 		drawCoordinates(placeTiles, size);
-		addTitle(boardPane, "PLACE YOUR FLEET", 0);
-		boardPane.setPrefSize(size * TILE + 10, TITLE_H + size * TILE + 10);
+		boardPane.setPrefSize(size * tileSize, size * tileSize);
 
 		placePrompt = new Label();
-		placePrompt.setFont(Font.font(15));
 		placePrompt.setWrapText(true);
 		placePrompt.setPrefWidth(260);
+		placePrompt.setTextFill(Color.web("#c9e9ff"));
+		placePrompt.setFont(mono(15, FontWeight.NORMAL));
 
-		Button rotateBtn = new Button("Rotate (R)");
+		Button rotateBtn = neonButton("ROTATE  (R)", CYAN);
 		rotateBtn.setOnAction(e -> rotatePlacement());
-		Button randomBtn = new Button("Place randomly");
+		Button randomBtn = neonButton("RANDOMIZE", YELLOW);
 		randomBtn.setOnAction(e -> randomPlacement());
-		Button clearBtn = new Button("Clear");
+		Button clearBtn = neonButton("CLEAR", MAGENTA);
 		clearBtn.setOnAction(e -> clearPlacement());
-		startBattleBtn = new Button("Start Battle");
-		startBattleBtn.setFont(Font.font(16));
+		startBattleBtn = neonButton("START BATTLE  ▶", GREEN);
 		startBattleBtn.setDisable(true);
 		startBattleBtn.setOnAction(e -> showBattleScreen());
 
-		VBox controls = new VBox(12, placePrompt, rotateBtn, randomBtn, clearBtn, startBattleBtn);
-		controls.setPadding(new Insets(TITLE_H + 6, 12, 12, 18));
+		VBox controls = new VBox(14, neonLabel("PLACE YOUR FLEET", 20, CYAN), placePrompt, rotateBtn, randomBtn,
+				clearBtn, spacer(8), startBattleBtn);
+		controls.setPadding(new Insets(10, 10, 10, 24));
 		controls.setPrefWidth(300);
+		controls.setAlignment(Pos.TOP_LEFT);
 
-		BorderPane rootPane = new BorderPane();
-		rootPane.setCenter(boardPane);
-		rootPane.setRight(controls);
-		BorderPane.setMargin(boardPane, new Insets(0, 0, 0, 10));
+		HBox rootBox = new HBox(20, wrapBoard("YOUR WATERS", boardPane), controls);
+		rootBox.setAlignment(Pos.CENTER);
+		rootBox.setPadding(new Insets(24));
+		rootBox.setBackground(solid(BG));
 
-		Scene scene = new Scene(rootPane);
-		// Rotate with the R key too.
+		Scene scene = new Scene(rootBox);
 		scene.setOnKeyPressed(e -> {
 			if (e.getCode() == KeyCode.R) {
 				rotatePlacement();
 			}
 		});
 		stage.setScene(scene);
+		sizeToScene();
 		renderPlacement();
 		updatePlacementPrompt();
 	}
@@ -200,8 +223,7 @@ public class gameboard extends Application {
 			}
 			updatePlacementPrompt();
 		} else {
-			placePrompt.setText("That won't fit there (off-board or overlapping). Try another cell.\n\n"
-					+ promptForCurrentShip());
+			placePrompt.setText("Won't fit there (off-board or overlapping).\n\n" + promptForCurrentShip());
 		}
 	}
 
@@ -210,7 +232,6 @@ public class gameboard extends Application {
 		updatePlacementPrompt();
 	}
 
-	// Clear everything and drop the whole fleet down at random.
 	private void randomPlacement() {
 		playerBoard.placeFleetRandomly(rng);
 		placeIndex = playerBoard.fleet.ships.length;
@@ -227,7 +248,6 @@ public class gameboard extends Application {
 		updatePlacementPrompt();
 	}
 
-	// Repaint the placement grid from the ship-position array.
 	private void renderPlacement() {
 		for (int x = 1; x < playerBoard.size; x++) {
 			for (int y = 1; y < playerBoard.size; y++) {
@@ -243,7 +263,7 @@ public class gameboard extends Application {
 
 	private void updatePlacementPrompt() {
 		if (placeIndex >= playerBoard.fleet.ships.length) {
-			placePrompt.setText("Fleet ready! Click \"Start Battle\" when you're set.");
+			placePrompt.setText("Fleet ready! Hit START BATTLE when you're set.");
 		} else {
 			placePrompt.setText(promptForCurrentShip());
 		}
@@ -251,8 +271,8 @@ public class gameboard extends Application {
 
 	private String promptForCurrentShip() {
 		Ship ship = playerBoard.fleet.ships[placeIndex];
-		return "Place your " + ship.name + " (length " + ship.length + ").\nOrientation: "
-				+ (placeHorizontal ? "Horizontal" : "Vertical") + "  -  click a starting cell, or press R to rotate.";
+		return "Placing: " + ship.name + "\nLength: " + ship.length + "\nOrientation: "
+				+ (placeHorizontal ? "HORIZONTAL" : "VERTICAL") + "\n\nClick a starting cell (R to rotate).";
 	}
 
 	// =========================================================================
@@ -261,58 +281,65 @@ public class gameboard extends Application {
 
 	private void showBattleScreen() {
 		int size = playerBoard.size;
+		tileSize = computeTileSize(size, 2);
 		enemyBoard = new BoardState(size);
 		enemyBoard.placeFleetRandomly(rng);
 		inputLocked = false;
-		playerAction = "Fire at the enemy waters on the right.";
-		aiAction = "Waiting for your first shot...";
 
-		battleRoot = new Pane();
-
-		int boardPixel = size * TILE;
-		int playerX = 0;
-		int enemyX = boardPixel + GAP;
-		int scoreX = 2 * boardPixel + 2 * GAP;
-
-		playerTiles = buildGrid(battleRoot, size, playerX, null); // your board: not clickable
-		enemyTiles = buildGrid(battleRoot, size, enemyX, this::handlePlayerShot);
-
+		Pane playerPane = new Pane();
+		playerTiles = buildGrid(playerPane, size, null);
 		drawCoordinates(playerTiles, size);
-		drawCoordinates(enemyTiles, size);
-		addTitle(battleRoot, "YOUR FLEET", playerX);
-		addTitle(battleRoot, "ENEMY WATERS", enemyX);
-
+		playerPane.setPrefSize(size * tileSize, size * tileSize);
 		revealFleet(playerTiles, playerBoard);
+
+		Pane enemyPane = new Pane();
+		enemyTiles = buildGrid(enemyPane, size, this::handlePlayerShot);
+		drawCoordinates(enemyTiles, size);
+		enemyPane.setPrefSize(size * tileSize, size * tileSize);
 		if (revealMapCheat) {
 			revealFleet(enemyTiles, enemyBoard);
 		}
 
-		scoreboard.setTranslateX(scoreX);
-		scoreboard.setTranslateY(TITLE_H);
-		battleRoot.getChildren().add(scoreboard);
-		battleRoot.setPrefSize(scoreX + 300, Math.max(TITLE_H + boardPixel, 700));
+		HBox boards = new HBox(GAP, wrapBoard("YOUR FLEET", playerPane), wrapBoard("ENEMY WATERS", enemyPane),
+				buildPanel());
+		boards.setAlignment(Pos.CENTER);
+		boards.setPadding(new Insets(GAP));
+
+		banner = new Label();
+		banner.setMaxWidth(Double.MAX_VALUE);
+		banner.setAlignment(Pos.CENTER);
+		banner.setPrefHeight(BANNER_H);
+		banner.setFont(mono(26, FontWeight.BOLD));
+
+		VBox layout = new VBox(banner, boards);
+		layout.setAlignment(Pos.TOP_CENTER);
+		layout.setBackground(solid(BG));
+
+		battleStack = new StackPane(layout);
+		battleStack.setBackground(solid(BG));
 
 		opponent = new OllamaOpponent(OLLAMA_URL, OLLAMA_MODEL);
 		new Thread(opponent::warmUp, "ollama-warmup").start();
 
-		updateScoreboard();
-		stage.setScene(new Scene(battleRoot));
+		setBanner("YOUR TURN  —  fire at the enemy waters", CYAN, false);
+		refreshPanel("Fire at the enemy waters on the right.", "Waiting for your first shot...");
+
+		stage.setScene(new Scene(battleStack));
+		sizeToScene();
 	}
 
-	// Called when the player clicks an enemy-waters tile.
 	private void handlePlayerShot(int x, int y) {
 		if (inputLocked) {
 			return;
 		}
 		BoardState.Shot result = enemyBoard.fireAt(x, y);
 		if (result == BoardState.Shot.ALREADY_FIRED) {
-			playerAction = "You already fired at " + coord(x, y) + ".";
-			updateScoreboard();
+			lblYou.setText("You already fired at " + coord(x, y) + ".");
 			return;
 		}
 		renderShot(enemyTiles[x][y], result, enemyBoard, x, y);
-		playerAction = "You fired at " + coord(x, y) + " - " + describePlayerResult(result, enemyBoard, x, y);
-		updateScoreboard();
+		lblYou.setText("You fired at " + coord(x, y) + " - " + describePlayerResult(result, enemyBoard, x, y));
+		updateStats();
 
 		if (enemyBoard.fleet.isDestroyed()) {
 			endGame(true);
@@ -321,12 +348,9 @@ public class gameboard extends Application {
 		aiTurn();
 	}
 
-	// Run the computer's turn off the FX thread (the Ollama call can be slow), then
-	// apply the result back on the FX thread.
 	private void aiTurn() {
 		inputLocked = true;
-		aiAction = "Enemy AI is thinking...";
-		updateScoreboard();
+		setBanner("ENEMY AI IS THINKING…", MAGENTA, true);
 		new Thread(() -> {
 			int[] cell = opponent.chooseTarget(playerBoard);
 			boolean fromModel = opponent.lastMoveFromModel();
@@ -346,51 +370,135 @@ public class gameboard extends Application {
 		renderShot(playerTiles[x][y], result, playerBoard, x, y);
 
 		String source = fromModel ? "[" + OLLAMA_MODEL + "]" : "[random]";
-		aiAction = "Enemy AI " + source + " fired at " + coord(x, y) + " - " + resultWord(result) + " (" + ms + "ms)";
-		playerAction = describeAiResult(result, playerBoard, x, y);
-		updateScoreboard();
+		lblAi.setText("AI " + source + " fired at " + coord(x, y) + " - " + resultWord(result) + " (" + ms + "ms)");
+		lblYou.setText(describeAiResult(result, playerBoard, x, y));
+		updateStats();
 
 		if (playerBoard.fleet.isDestroyed()) {
 			endGame(false);
 			return;
 		}
 		inputLocked = false;
+		setBanner("YOUR TURN  —  fire at the enemy waters", CYAN, false);
 	}
 
 	private void renderShot(Tile tile, BoardState.Shot result, BoardState board, int x, int y) {
 		switch (result) {
 		case MISS:
-			tile.setFill(MISS);
-			tile.drawChar('o');
+			tile.showMiss();
 			break;
 		case HIT:
-			tile.setFill(HIT);
-			tile.drawChar(board.shipPositions[x][y]);
+			tile.showHit(false);
 			break;
 		case SUNK:
-			tile.setFill(SUNK);
-			tile.drawChar(board.shipPositions[x][y]);
+			tile.showHit(true);
 			break;
 		default:
 			break;
 		}
 	}
 
+	// =========================================================================
+	// Win / lose overlay
+	// =========================================================================
+
 	private void endGame(boolean playerWon) {
-		String message = playerWon ? "You sank the entire enemy fleet! You win!"
-				: "The enemy sank your entire fleet. You lose!";
-		Alert alert = new Alert(AlertType.INFORMATION, message + "\nThanks for playing!");
-		alert.setHeaderText(playerWon ? "Victory" : "Defeat");
-		alert.showAndWait();
-		Platform.exit();
+		stopPulse();
+		setBanner(playerWon ? "VICTORY" : "DEFEAT", playerWon ? GREEN : RED, false);
+
+		Label big = neonLabel(playerWon ? "VICTORY!" : "DEFEAT", 72, playerWon ? GREEN : RED);
+		Label sub = neonLabel(playerWon ? "You sank the entire enemy fleet." : "The enemy sank your entire fleet.", 20,
+				CYAN);
+		Button again = neonButton("PLAY AGAIN", CYAN);
+		again.setOnAction(e -> showStartScreen());
+		Button quit = neonButton("QUIT", MAGENTA);
+		quit.setOnAction(e -> Platform.exit());
+
+		VBox card = new VBox(18, big, sub, spacer(10), new HBox(16, again, quit) {
+			{
+				setAlignment(Pos.CENTER);
+			}
+		});
+		card.setAlignment(Pos.CENTER);
+		card.setPadding(new Insets(40));
+		card.setMaxSize(560, 360);
+		card.setBackground(new javafx.scene.layout.Background(new javafx.scene.layout.BackgroundFill(PANEL_BG,
+				new javafx.scene.layout.CornerRadii(16), Insets.EMPTY)));
+		card.setBorder(neonBorder(playerWon ? GREEN : RED, 16));
+		card.setEffect(glow(playerWon ? GREEN : RED, 30));
+
+		StackPane overlay = new StackPane(card);
+		overlay.setBackground(solid(Color.web("#000000cc")));
+		FadeTransition ft = new FadeTransition(Duration.millis(260), overlay);
+		ft.setFromValue(0);
+		ft.setToValue(1);
+		battleStack.getChildren().add(overlay);
+		ft.play();
 	}
 
 	// =========================================================================
-	// Shared board-building + rendering helpers
+	// Side panel (score + log)
 	// =========================================================================
 
-	// The playing grid is one larger than the visible board because row/col 0 hold
-	// coordinate labels: 6x6 -> 7, 9x9 -> 10, 12x12 -> 13.
+	private VBox buildPanel() {
+		lblYourShips = statLabel(GREEN);
+		lblEnemyShips = statLabel(RED);
+		lblAccuracy = statLabel(YELLOW);
+		lblYou = logLabel(CYAN);
+		lblAi = logLabel(MAGENTA);
+
+		VBox panel = new VBox(10, neonLabel("BATTLESHIP v2", 22, CYAN), neonLabel("by James Potratz", 12, MAGENTA),
+				spacer(6), lblYourShips, lblEnemyShips, lblAccuracy, spacer(6), sectionLabel("YOU"), lblYou, spacer(4),
+				sectionLabel("ENEMY AI"), lblAi);
+		panel.setPadding(new Insets(16));
+		panel.setPrefWidth(PANEL_W);
+		panel.setMinWidth(PANEL_W);
+		panel.setBackground(new javafx.scene.layout.Background(new javafx.scene.layout.BackgroundFill(PANEL_BG,
+				new javafx.scene.layout.CornerRadii(14), Insets.EMPTY)));
+		panel.setBorder(neonBorder(CYAN, 14));
+		return panel;
+	}
+
+	private void refreshPanel(String you, String ai) {
+		lblYou.setText(you);
+		lblAi.setText(ai);
+		updateStats();
+	}
+
+	private void updateStats() {
+		String accuracy = enemyBoard.shots == 0 ? "100" : actiongame.getAccuracy(enemyBoard.shots, enemyBoard.hits);
+		lblYourShips.setText("Your ships:    " + playerBoard.fleet.shipsRemaining() + " / 5");
+		lblEnemyShips.setText("Enemy ships:  " + enemyBoard.fleet.shipsRemaining() + " / 5");
+		lblAccuracy.setText("Your accuracy: " + accuracy + "%");
+	}
+
+	private void setBanner(String text, Color color, boolean pulse) {
+		stopPulse();
+		banner.setText(text);
+		banner.setTextFill(color);
+		banner.setEffect(glow(color, 18));
+		if (pulse) {
+			bannerPulse = new FadeTransition(Duration.millis(650), banner);
+			bannerPulse.setFromValue(1.0);
+			bannerPulse.setToValue(0.35);
+			bannerPulse.setAutoReverse(true);
+			bannerPulse.setCycleCount(FadeTransition.INDEFINITE);
+			bannerPulse.play();
+		}
+	}
+
+	private void stopPulse() {
+		if (bannerPulse != null) {
+			bannerPulse.stop();
+			banner.setOpacity(1.0);
+			bannerPulse = null;
+		}
+	}
+
+	// =========================================================================
+	// Board building + rendering helpers
+	// =========================================================================
+
 	private int boardSizeForDifficulty(int difficulty) {
 		if (difficulty == 1) {
 			return 7;
@@ -398,19 +506,26 @@ public class gameboard extends Application {
 		if (difficulty == 3) {
 			return 13;
 		}
-		return 10; // standard (difficulty 2)
+		return 10;
 	}
 
-	// Create one size x size grid of Tiles at the given x pixel offset, add them to
-	// the given pane, and return the array (indexed [x][y]). A null handler makes a
-	// non-interactive grid.
-	private Tile[][] buildGrid(Pane pane, int size, int xOffset, CellHandler handler) {
+	// Pick a tile size so `boards` boards plus the side panel fit on this screen.
+	private int computeTileSize(int size, int boards) {
+		Rectangle2D vb = Screen.getPrimary().getVisualBounds();
+		double availW = vb.getWidth() - PANEL_W - (boards + 1) * GAP - 40;
+		double availH = vb.getHeight() - BANNER_H - 90;
+		int byW = (int) Math.floor(availW / (boards * size));
+		int byH = (int) Math.floor(availH / size);
+		return Math.max(18, Math.min(52, Math.min(byW, byH)));
+	}
+
+	private Tile[][] buildGrid(Pane pane, int size, CellHandler handler) {
 		Tile[][] tiles = new Tile[size][size];
 		for (int y = 0; y < size; y++) {
 			for (int x = 0; x < size; x++) {
 				Tile tile = new Tile(x, y, handler);
-				tile.setTranslateX(xOffset + x * TILE);
-				tile.setTranslateY(TITLE_H + y * TILE);
+				tile.setTranslateX(x * tileSize);
+				tile.setTranslateY(y * tileSize);
 				pane.getChildren().add(tile);
 				tiles[x][y] = tile;
 			}
@@ -422,19 +537,11 @@ public class gameboard extends Application {
 		char letter = 'A';
 		int number = 1;
 		for (int i = 1; i < size; i++) {
-			tiles[0][i].drawChar(letter);
-			tiles[i][0].drawInt(number);
+			tiles[0][i].drawLabel("" + letter);
+			tiles[i][0].drawLabel("" + number);
 			letter += 1;
 			number += 1;
 		}
-	}
-
-	private void addTitle(Pane pane, String words, int xOffset) {
-		Text title = new Text(words);
-		title.setFont(Font.font(20));
-		title.setTranslateX(xOffset + 4);
-		title.setTranslateY(24);
-		pane.getChildren().add(title);
 	}
 
 	private void revealFleet(Tile[][] tiles, BoardState board) {
@@ -447,17 +554,16 @@ public class gameboard extends Application {
 		}
 	}
 
-	// =========================================================================
-	// Scoreboard + text helpers
-	// =========================================================================
-
-	public void updateScoreboard() {
-		String accuracy = enemyBoard.shots == 0 ? "100" : actiongame.getAccuracy(enemyBoard.shots, enemyBoard.hits);
-		String text = "Battleship v2\nby James Potratz\n\n" + "Your ships:   " + playerBoard.fleet.shipsRemaining()
-				+ " / 5\n" + "Enemy ships:  " + enemyBoard.fleet.shipsRemaining() + " / 5\n" + "Your accuracy: "
-				+ accuracy + "%\n\n" + "YOU:\n" + playerAction + "\n\n" + "ENEMY AI:\n" + aiAction;
-		scoreboard.drawScore(text);
+	// Wrap a board pane under a neon title.
+	private VBox wrapBoard(String title, Pane board) {
+		VBox col = new VBox(6, neonLabel(title, 16, CYAN), board);
+		col.setAlignment(Pos.TOP_CENTER);
+		return col;
 	}
+
+	// =========================================================================
+	// Text helpers
+	// =========================================================================
 
 	private String coord(int x, int y) {
 		return x + "," + actiongame.convertCoord(y);
@@ -499,77 +605,227 @@ public class gameboard extends Application {
 	}
 
 	// =========================================================================
-	// Inner UI classes
+	// Styling factory helpers
 	// =========================================================================
 
-	public static class ScoreText extends Text {
-		public ScoreText() {
-			this.setWrappingWidth(300);
-		}
+	private Font mono(double size, FontWeight weight) {
+		return Font.font("Consolas", weight, size);
 	}
 
-	public static class Scoreboard extends StackPane {
-		private ScoreText scoretext = new ScoreText();
-
-		public Scoreboard() {
-			Rectangle border = new Rectangle(300, 700);
-			border.setFill(null);
-			scoretext.setFont(Font.font(20));
-			setAlignment(Pos.TOP_LEFT);
-			getChildren().addAll(border, scoretext);
-		}
-
-		private void drawScore(String words) {
-			scoretext.setText(words);
-		}
+	private Label neonLabel(String text, double size, Color color) {
+		Label l = new Label(text);
+		l.setFont(mono(size, FontWeight.BOLD));
+		l.setTextFill(color);
+		l.setEffect(glow(color, Math.max(8, size * 0.35)));
+		return l;
 	}
 
-	// One grid cell. Holds its own coordinates and, when given a handler, invokes it
-	// on a left click of a playable (non-label) cell.
+	private Label sectionLabel(String text) {
+		Label l = new Label(text);
+		l.setFont(mono(13, FontWeight.BOLD));
+		l.setTextFill(Color.web("#7fbfe0"));
+		return l;
+	}
+
+	private Label statLabel(Color color) {
+		Label l = new Label();
+		l.setFont(mono(16, FontWeight.BOLD));
+		l.setTextFill(color);
+		return l;
+	}
+
+	private Label logLabel(Color color) {
+		Label l = new Label();
+		l.setWrapText(true);
+		l.setPrefWidth(PANEL_W - 34);
+		l.setFont(mono(13, FontWeight.NORMAL));
+		l.setTextFill(color);
+		return l;
+	}
+
+	private Button neonButton(String text, Color color) {
+		Button b = new Button(text);
+		b.setFont(mono(15, FontWeight.BOLD));
+		b.setTextFill(color);
+		b.setBackground(solid(Color.web("#0e1424")));
+		b.setBorder(neonBorder(color, 8));
+		b.setPadding(new Insets(8, 16, 8, 16));
+		b.setEffect(glow(color, 8));
+		b.setOnMouseEntered(e -> b.setBackground(solid(Color.web("#182238"))));
+		b.setOnMouseExited(e -> b.setBackground(solid(Color.web("#0e1424"))));
+		return b;
+	}
+
+	private void styleCheck(CheckBox c) {
+		c.setTextFill(Color.web("#c9e9ff"));
+		c.setFont(mono(14, FontWeight.NORMAL));
+	}
+
+	private static DropShadow glow(Color color, double radius) {
+		DropShadow d = new DropShadow(radius, color);
+		d.setSpread(0.35);
+		return d;
+	}
+
+	private static javafx.scene.layout.Background solid(Color c) {
+		return new javafx.scene.layout.Background(new javafx.scene.layout.BackgroundFill(c, null, Insets.EMPTY));
+	}
+
+	private static javafx.scene.layout.Border neonBorder(Color c, double radius) {
+		return new javafx.scene.layout.Border(new javafx.scene.layout.BorderStroke(c,
+				javafx.scene.layout.BorderStrokeStyle.SOLID, new javafx.scene.layout.CornerRadii(radius),
+				new javafx.scene.layout.BorderWidths(2)));
+	}
+
+	private Node spacer(double h) {
+		Pane p = new Pane();
+		p.setMinHeight(h);
+		p.setPrefHeight(h);
+		return p;
+	}
+
+	// Size the window to the scene's preferred size and center it.
+	private void sizeToScene() {
+		stage.sizeToScene();
+		stage.centerOnScreen();
+	}
+
+	// =========================================================================
+	// Tile: one grid cell with neon styling, hover, shape markers, animations
+	// =========================================================================
+
 	public class Tile extends StackPane {
-		private Text text = new Text();
-		private Rectangle border = new Rectangle(TILE, TILE);
-		public int xcoord;
-		public int ycoord;
+		private final Rectangle bg;
+		private final Text label = new Text();
+		private final boolean playable;
+		private final boolean clickable;
+		private boolean spent = false; // already shot or occupied by a shown ship
 
 		public Tile(int x, int y, CellHandler handler) {
-			xcoord = x;
-			ycoord = y;
-			border.setFill((x == 0 || y == 0) ? null : WATER);
-			border.setStroke(Color.BLACK);
-			text.setFont(Font.font(28));
-			setAlignment(Pos.CENTER);
-			getChildren().addAll(border, text);
+			playable = (x != 0 && y != 0);
+			clickable = playable && handler != null;
 
-			if (handler != null) {
-				setOnMouseClicked(event -> {
-					if (event.getButton() == MouseButton.PRIMARY && xcoord != 0 && ycoord != 0) {
-						handler.handle(xcoord, ycoord);
+			double arc = tileSize * 0.28;
+			bg = new Rectangle(tileSize - 2, tileSize - 2);
+			bg.setArcWidth(arc);
+			bg.setArcHeight(arc);
+			bg.setFill(playable ? WATER : Color.TRANSPARENT);
+			bg.setStroke(playable ? GRID : Color.TRANSPARENT);
+			bg.setStrokeWidth(1.5);
+
+			label.setFont(mono(tileSize * 0.42, FontWeight.BOLD));
+			label.setFill(Color.web("#8fd7ea"));
+
+			setAlignment(Pos.CENTER);
+			getChildren().addAll(bg, label);
+
+			if (clickable) {
+				bg.setEffect(glow(GRID, 5));
+				setOnMouseEntered(e -> {
+					if (!spent) {
+						bg.setStroke(CYAN);
+						bg.setEffect(glow(CYAN, 14));
+						setScaleX(1.08);
+						setScaleY(1.08);
+					}
+				});
+				setOnMouseExited(e -> {
+					if (!spent) {
+						bg.setStroke(GRID);
+						bg.setEffect(glow(GRID, 5));
+						setScaleX(1.0);
+						setScaleY(1.0);
+					}
+				});
+				setOnMouseClicked(e -> {
+					if (e.getButton() == MouseButton.PRIMARY) {
+						handler.handle(x, y);
 					}
 				});
 			}
 		}
 
-		public void setFill(Color color) {
-			border.setFill(color);
+		public void drawLabel(String s) {
+			label.setText(s);
 		}
 
 		public void setWater() {
-			border.setFill(WATER);
-			text.setText("");
+			spent = false;
+			bg.setFill(WATER);
+			bg.setStroke(GRID);
+			removeMarkers();
 		}
 
 		public void showShip(char icon) {
-			border.setFill(OWN_SHIP);
-			drawChar(icon);
+			spent = true;
+			bg.setFill(SHIP_FILL);
+			bg.setStroke(SHIP_BODY);
+			bg.setEffect(glow(SHIP_BODY, 8));
+			removeMarkers();
+			double s = tileSize;
+			Rectangle body = new Rectangle(s * 0.5, s * 0.5, SHIP_BODY);
+			body.setArcWidth(s * 0.3);
+			body.setArcHeight(s * 0.3);
+			body.setEffect(glow(SHIP_BODY, 6));
+			getChildren().add(body);
+			pop(body);
 		}
 
-		public void drawChar(char letter) {
-			text.setText("" + letter);
+		public void showMiss() {
+			spent = true;
+			resetHover();
+			removeMarkers();
+			double r = tileSize * 0.16;
+			Circle splash = new Circle(r, MISS_MARK);
+			splash.setStroke(Color.web("#a9c6e6"));
+			splash.setStrokeWidth(1.5);
+			getChildren().add(splash);
+			pop(splash);
 		}
 
-		private void drawInt(int number) {
-			text.setText("" + number);
+		public void showHit(boolean sunk) {
+			spent = true;
+			resetHover();
+			Color c = sunk ? Color.web("#7a1f2a") : RED;
+			bg.setFill(c.deriveColor(0, 1, 0.5, 1));
+			// a burst: a filled core plus two crossing beams
+			double s = tileSize;
+			Circle core = new Circle(s * 0.2, c);
+			core.setEffect(glow(RED, 12));
+			Line a = beam(-s * 0.28, -s * 0.28, s * 0.28, s * 0.28, c);
+			Line b = beam(-s * 0.28, s * 0.28, s * 0.28, -s * 0.28, c);
+			getChildren().addAll(a, b, core);
+			pop(core);
+			pop(a);
+			pop(b);
+		}
+
+		private Line beam(double x1, double y1, double x2, double y2, Color c) {
+			Line l = new Line(x1, y1, x2, y2);
+			l.setStroke(c.brighter());
+			l.setStrokeWidth(Math.max(2, tileSize * 0.06));
+			l.setEffect(glow(RED, 8));
+			return l;
+		}
+
+		private void resetHover() {
+			setScaleX(1.0);
+			setScaleY(1.0);
+			bg.setEffect(null);
+		}
+
+		private void removeMarkers() {
+			getChildren().removeIf(n -> n != bg && n != label);
+		}
+
+		private void pop(Node n) {
+			n.setScaleX(0.15);
+			n.setScaleY(0.15);
+			ScaleTransition st = new ScaleTransition(Duration.millis(200), n);
+			st.setToX(1);
+			st.setToY(1);
+			st.setInterpolator(Interpolator.EASE_OUT);
+			st.play();
 		}
 	}
 

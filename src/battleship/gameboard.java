@@ -1,23 +1,36 @@
-// James Potratz CSIS 222 - MCC
-// For the game of battleship.
-// This class contains the code to build the game board, placement of pieces
-// tracking score, ship object creation.
-// Utilizes JavaFX for gameboard handling
+// James Potratz CSIS 222 - MCC (v2)
+// The JavaFX front-end for Battleship v2. Three scenes, swapped on one Stage:
+//   1) Start   - pick difficulty + cheat, in-scene (no more popup dialogs).
+//   2) Placement - click to place your own five ships (R to rotate).
+//   3) Battle  - your fleet (left) vs enemy waters (right); you and the computer
+//                fire on alternating turns, results shown in color.
+// All rules live in the pure classes (BoardState, Fleet, Ship, ShipPlacement) and
+// the computer's targeting lives behind the Opponent interface (OllamaOpponent,
+// backed by RandomOpponent). This class is only the UI + turn flow.
 
 package battleship;
 
 import java.util.Random;
 
 import javafx.application.Application;
+import javafx.application.Platform;
+import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Alert.AlertType;
-import javafx.scene.control.ButtonType;
+import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
+import javafx.scene.control.Label;
+import javafx.scene.control.RadioButton;
+import javafx.scene.control.ToggleGroup;
+import javafx.scene.input.KeyCode;
 import javafx.scene.input.MouseButton;
+import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.Pane;
 import javafx.scene.layout.StackPane;
+import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Font;
@@ -26,687 +39,540 @@ import javafx.stage.Stage;
 
 public class gameboard extends Application {
 
-	// Declare tile object map
-	public static Tile[][] board;
-	// Creates a new pane to play Battleship on
-	private Pane root = new Pane();
-	// Creates the ship objects
-	public static carrierShip carrier = new carrierShip();
-	public static battleshipShip battle = new battleshipShip();
-	public static destroyerShip destroyer = new destroyerShip();
-	public static submarineShip submarine = new submarineShip();
-	public static patrolShip patrol = new patrolShip();
-	// Missile counter
-	protected static int missiles;
-	// Missiles fired counter
-	private static int missilesFired;
-	// Create a new scoreboard object
-	public static Scoreboard scoreboard = new Scoreboard();
-	// Boundary variable for the map pane
-	public int boundary = 0;
-	// Create a 2D array to track ship positions separate from display
-	public static char[][] shipPositions;
-	// Variable to track how many ships are remaining
-	public static int shipsRemaining = 5;
-	// Variable to track how many times a user has hit ships
-	public static int hits = 0;
-	// String to hold the text of the last action
-	public static String lastAction;
-	// String to hold the text of what occurred
-	public static String whatHappened;
-	// New constructors for each difficulty button
-	public static ButtonType beginner = new ButtonType("Beginner 6x6");
-	public static ButtonType standard = new ButtonType("Standard 9x9");
-	public static ButtonType advanced = new ButtonType("Advanced 12x12");
-	public static ButtonType revealMap = new ButtonType("Reveal the map");
-	// Boolean for revealing the map using a cheat
+	// ---- layout + color constants -------------------------------------------
+	private static final int TILE = 50; // pixel size of one grid cell
+	private static final int GAP = 60; // gap between the two battle boards
+	private static final int TITLE_H = 34; // headroom above the boards for titles
+
+	private static final Color WATER = Color.web("#9fd3e0"); // unshot water
+	private static final Color MISS = Color.web("#b8c2c9"); // shot, empty
+	private static final Color HIT = Color.web("#d64545"); // shot a ship
+	private static final Color SUNK = Color.web("#7a1f1f"); // a fully sunk ship
+	private static final Color OWN_SHIP = Color.web("#51606b"); // your unhit ship
+
+	// ---- Ollama opponent config (easy to change) ----------------------------
+	private static final String OLLAMA_URL = "http://192.168.1.210:30068";
+	private static final String OLLAMA_MODEL = "qwen2.5:7b";
+
+	// ---- shared state --------------------------------------------------------
+	private Stage stage;
+	private final Random rng = new Random();
 	public static boolean revealMapCheat = false;
-	// variables for resolution of pane
-	public static final int Y_RESOLUTION = 1005;
-	public static final int X_RESOLUTION = 700;
+	public static Scoreboard scoreboard = new Scoreboard();
 
-	// Generate the content for the pane. Includes Scoreboard position, tiles, ships
-	// placement, arrays and missile count
-	// Array sizes will typically be 1 larger than the difficulty setting due to the
-	// coordinates
-	public Parent createContent() {
-		// Content creation for Beginner level
-		if (battleship.difficulty == 1) {
-			// Create board array for beginner
-			board = new Tile[7][7];
-			// Sets the size of the pane
-			root.setPrefSize(Y_RESOLUTION, X_RESOLUTION);
-			// Creating the playing field using for loops, Y values is i
+	// ---- placement-screen state ---------------------------------------------
+	private Tile[][] placeTiles;
+	private int placeIndex; // which ship (0..4) we're placing next
+	private boolean placeHorizontal = true; // current placement orientation
+	private Label placePrompt;
+	private Button startBattleBtn;
 
-			for (int i = 0; i < 7; i++) {
-				// X values is j
-				for (int j = 0; j < 7; j++) {
-					// Create a tile, and then translate it 50 pixels x and y
-					Tile tile = new Tile(j, i);
-					tile.setTranslateX(j * 50);
-					tile.setTranslateY(i * 50);
-					// Display the object tile
-					root.getChildren().add(tile);
-					// Populate the array board
-					board[j][i] = tile;
-				}
-			}
-			// call the initializeTrackHits method for beginner difficulty
-			actiongame.initializeTrackHits(7);
-			// call the initializeShipPositionArray method for beginner difficulty
-			initializeShipPositionArray(7);
-			// Move the scoreboard into its correct position
-			scoreboard.setTranslateX(700);
-			scoreboard.setTranslateY(0);
-			// Display the scoreboard object
-			root.getChildren().add(scoreboard);
-			// Draw the coordinates to the pane
-			drawCoordinatesPerDifficulty();
-			// Set missile count for beginner
-			missiles = 30;
-			// Set the initial message of the scoreboard
-			initializeScoreboard();
-			// Generate ship positions. Note on beginner difficulty this map result in an
-			// infinite loop.
-			generateShips();
+	// ---- battle state --------------------------------------------------------
+	private Pane battleRoot;
+	private BoardState playerBoard; // your fleet; the AI fires here
+	private BoardState enemyBoard; // enemy fleet; you fire here
+	private Tile[][] playerTiles;
+	private Tile[][] enemyTiles;
+	private Opponent opponent;
+	private boolean inputLocked = false; // true while the AI is taking its turn
+	private String playerAction = "Fire at the enemy waters on the right.";
+	private String aiAction = "Waiting for your first shot...";
 
-		}
-		// Content creation for Standard level
-		if (battleship.difficulty == 2) {
-			// Create board array for standard
-			board = new Tile[10][10];
-			// Sets the size of the pane
-			root.setPrefSize(Y_RESOLUTION, X_RESOLUTION);
-			// Creating the playing field using for loops, Y values is i
-			for (int i = 0; i < 10; i++) {
-				// X values is j
-				for (int j = 0; j < 10; j++) {
-					// Create a tile, and then translate it 50 pixels x and y
-					Tile tile = new Tile(j, i);
-					tile.setTranslateX(j * 50);
-					tile.setTranslateY(i * 50);
-					// Display the object tile
-					root.getChildren().add(tile);
-					// Populate the array board
-					board[j][i] = tile;
-				}
-			}
-			// Call initialize functions for standard
-			actiongame.initializeTrackHits(10);
-			initializeShipPositionArray(10);
-			// Move scoreboard into place and display
-			scoreboard.setTranslateX(700);
-			scoreboard.setTranslateY(0);
-			root.getChildren().add(scoreboard);
-			// Draw coordinates
-			drawCoordinatesPerDifficulty();
-			// Initialize missile count
-			missiles = 50;
-			// Display first scoreboard message
-			initializeScoreboard();
-			// Generate ship positions
-			generateShips();
-		}
-		// Content creation for Advanced level
-		if (battleship.difficulty == 3) {
-			// Create board for advanced
-			board = new Tile[13][13];
-			// Sets the size of the pane "root" to 1300x1300 pixels
-			root.setPrefSize(Y_RESOLUTION, X_RESOLUTION);
-			// Creating the playing field using for loops, Y values is i
-			for (int i = 0; i < 13; i++) {
-				// X values is j
-				for (int j = 0; j < 13; j++) {
-					// Create a tile, and then translate it 50 pixels x and y
-					Tile tile = new Tile(j, i);
-					tile.setTranslateX(j * 50);
-					tile.setTranslateY(i * 50);
-					// Display the object tile
-					root.getChildren().add(tile);
-					// Populate the array board
-					board[j][i] = tile;
-				}
-			}
-			// Difficulty initialization methods for advanced.
-			actiongame.initializeTrackHits(13);
-			initializeShipPositionArray(13);
-			// Move scoreboard into place and display
-			scoreboard.setTranslateX(700);
-			scoreboard.setTranslateY(0);
-			root.getChildren().add(scoreboard);
-			// Draw coordinates
-			drawCoordinatesPerDifficulty();
-			// Set missile count
-			missiles = 75;
-			// Display first scoreboard message
-			initializeScoreboard();
-			// Generate ship positions
-			generateShips();
-		}
-		// Display the pane
-		return root;
+	// A cell-click callback, so a grid can do different things on different screens.
+	private interface CellHandler {
+		void handle(int x, int y);
 	}
 
-	// Helper method to place each type of ship. calls the generateShipPlacement
-	// method
-	private void generateShips() {
-		generateShipPlacement(carrier);
-		generateShipPlacement(battle);
-		generateShipPlacement(destroyer);
-		generateShipPlacement(submarine);
-		generateShipPlacement(patrol);
-
+	@Override
+	public void start(Stage primaryStage) throws Exception {
+		this.stage = primaryStage;
+		stage.setTitle("Battleship v2");
+		showStartScreen();
+		stage.show();
+		stage.toFront();
 	}
 
-	// Constructor for setting the wrapping width of scoreboard text to 300 pixels
+	// =========================================================================
+	// Screen 1: Start
+	// =========================================================================
+
+	private void showStartScreen() {
+		Text title = new Text("BATTLESHIP v2");
+		title.setFont(Font.font(40));
+		Text credit = new Text("by James Potratz");
+		credit.setFont(Font.font(16));
+
+		ToggleGroup difficulty = new ToggleGroup();
+		RadioButton beginner = difficultyOption("Beginner  (6 x 6)", 1, difficulty);
+		RadioButton standard = difficultyOption("Standard  (9 x 9)", 2, difficulty);
+		RadioButton advanced = difficultyOption("Advanced  (12 x 12)", 3, difficulty);
+		standard.setSelected(true);
+
+		CheckBox cheat = new CheckBox("Reveal the enemy fleet (cheat)");
+
+		Button startBtn = new Button("Start");
+		startBtn.setFont(Font.font(18));
+		startBtn.setOnAction(e -> {
+			battleship.difficulty = (int) difficulty.getSelectedToggle().getUserData();
+			revealMapCheat = cheat.isSelected();
+			showPlacementScreen();
+		});
+
+		VBox box = new VBox(14, title, credit, new Label("Choose your difficulty:"), beginner, standard, advanced,
+				cheat, startBtn);
+		box.setAlignment(Pos.CENTER);
+		box.setPadding(new Insets(30));
+		stage.setScene(new Scene(box, 520, 460));
+	}
+
+	private RadioButton difficultyOption(String text, int value, ToggleGroup group) {
+		RadioButton rb = new RadioButton(text);
+		rb.setUserData(value);
+		rb.setToggleGroup(group);
+		rb.setFont(Font.font(16));
+		return rb;
+	}
+
+	// =========================================================================
+	// Screen 2: Placement
+	// =========================================================================
+
+	private void showPlacementScreen() {
+		int size = boardSizeForDifficulty(battleship.difficulty);
+		playerBoard = new BoardState(size);
+		placeIndex = 0;
+		placeHorizontal = true;
+
+		Pane boardPane = new Pane();
+		placeTiles = buildGrid(boardPane, size, 0, this::handlePlacementClick);
+		drawCoordinates(placeTiles, size);
+		addTitle(boardPane, "PLACE YOUR FLEET", 0);
+		boardPane.setPrefSize(size * TILE + 10, TITLE_H + size * TILE + 10);
+
+		placePrompt = new Label();
+		placePrompt.setFont(Font.font(15));
+		placePrompt.setWrapText(true);
+		placePrompt.setPrefWidth(260);
+
+		Button rotateBtn = new Button("Rotate (R)");
+		rotateBtn.setOnAction(e -> rotatePlacement());
+		Button randomBtn = new Button("Place randomly");
+		randomBtn.setOnAction(e -> randomPlacement());
+		Button clearBtn = new Button("Clear");
+		clearBtn.setOnAction(e -> clearPlacement());
+		startBattleBtn = new Button("Start Battle");
+		startBattleBtn.setFont(Font.font(16));
+		startBattleBtn.setDisable(true);
+		startBattleBtn.setOnAction(e -> showBattleScreen());
+
+		VBox controls = new VBox(12, placePrompt, rotateBtn, randomBtn, clearBtn, startBattleBtn);
+		controls.setPadding(new Insets(TITLE_H + 6, 12, 12, 18));
+		controls.setPrefWidth(300);
+
+		BorderPane rootPane = new BorderPane();
+		rootPane.setCenter(boardPane);
+		rootPane.setRight(controls);
+		BorderPane.setMargin(boardPane, new Insets(0, 0, 0, 10));
+
+		Scene scene = new Scene(rootPane);
+		// Rotate with the R key too.
+		scene.setOnKeyPressed(e -> {
+			if (e.getCode() == KeyCode.R) {
+				rotatePlacement();
+			}
+		});
+		stage.setScene(scene);
+		renderPlacement();
+		updatePlacementPrompt();
+	}
+
+	private void handlePlacementClick(int x, int y) {
+		if (placeIndex >= playerBoard.fleet.ships.length) {
+			return;
+		}
+		Ship ship = playerBoard.fleet.ships[placeIndex];
+		if (ShipPlacement.fitsAt(playerBoard.shipPositions, playerBoard.size, x, y, placeHorizontal, ship.length)) {
+			ShipPlacement.place(playerBoard.shipPositions, x, y, placeHorizontal, ship.length, ship.icon);
+			placeIndex++;
+			renderPlacement();
+			if (placeIndex == playerBoard.fleet.ships.length) {
+				startBattleBtn.setDisable(false);
+			}
+			updatePlacementPrompt();
+		} else {
+			placePrompt.setText("That won't fit there (off-board or overlapping). Try another cell.\n\n"
+					+ promptForCurrentShip());
+		}
+	}
+
+	private void rotatePlacement() {
+		placeHorizontal = !placeHorizontal;
+		updatePlacementPrompt();
+	}
+
+	// Clear everything and drop the whole fleet down at random.
+	private void randomPlacement() {
+		playerBoard.placeFleetRandomly(rng);
+		placeIndex = playerBoard.fleet.ships.length;
+		renderPlacement();
+		startBattleBtn.setDisable(false);
+		updatePlacementPrompt();
+	}
+
+	private void clearPlacement() {
+		ShipPlacement.clear(playerBoard.shipPositions);
+		placeIndex = 0;
+		renderPlacement();
+		startBattleBtn.setDisable(true);
+		updatePlacementPrompt();
+	}
+
+	// Repaint the placement grid from the ship-position array.
+	private void renderPlacement() {
+		for (int x = 1; x < playerBoard.size; x++) {
+			for (int y = 1; y < playerBoard.size; y++) {
+				char c = playerBoard.shipPositions[x][y];
+				if (c != ShipPlacement.EMPTY) {
+					placeTiles[x][y].showShip(c);
+				} else {
+					placeTiles[x][y].setWater();
+				}
+			}
+		}
+	}
+
+	private void updatePlacementPrompt() {
+		if (placeIndex >= playerBoard.fleet.ships.length) {
+			placePrompt.setText("Fleet ready! Click \"Start Battle\" when you're set.");
+		} else {
+			placePrompt.setText(promptForCurrentShip());
+		}
+	}
+
+	private String promptForCurrentShip() {
+		Ship ship = playerBoard.fleet.ships[placeIndex];
+		return "Place your " + ship.name + " (length " + ship.length + ").\nOrientation: "
+				+ (placeHorizontal ? "Horizontal" : "Vertical") + "  -  click a starting cell, or press R to rotate.";
+	}
+
+	// =========================================================================
+	// Screen 3: Battle
+	// =========================================================================
+
+	private void showBattleScreen() {
+		int size = playerBoard.size;
+		enemyBoard = new BoardState(size);
+		enemyBoard.placeFleetRandomly(rng);
+		inputLocked = false;
+		playerAction = "Fire at the enemy waters on the right.";
+		aiAction = "Waiting for your first shot...";
+
+		battleRoot = new Pane();
+
+		int boardPixel = size * TILE;
+		int playerX = 0;
+		int enemyX = boardPixel + GAP;
+		int scoreX = 2 * boardPixel + 2 * GAP;
+
+		playerTiles = buildGrid(battleRoot, size, playerX, null); // your board: not clickable
+		enemyTiles = buildGrid(battleRoot, size, enemyX, this::handlePlayerShot);
+
+		drawCoordinates(playerTiles, size);
+		drawCoordinates(enemyTiles, size);
+		addTitle(battleRoot, "YOUR FLEET", playerX);
+		addTitle(battleRoot, "ENEMY WATERS", enemyX);
+
+		revealFleet(playerTiles, playerBoard);
+		if (revealMapCheat) {
+			revealFleet(enemyTiles, enemyBoard);
+		}
+
+		scoreboard.setTranslateX(scoreX);
+		scoreboard.setTranslateY(TITLE_H);
+		battleRoot.getChildren().add(scoreboard);
+		battleRoot.setPrefSize(scoreX + 300, Math.max(TITLE_H + boardPixel, 700));
+
+		opponent = new OllamaOpponent(OLLAMA_URL, OLLAMA_MODEL);
+		new Thread(opponent::warmUp, "ollama-warmup").start();
+
+		updateScoreboard();
+		stage.setScene(new Scene(battleRoot));
+	}
+
+	// Called when the player clicks an enemy-waters tile.
+	private void handlePlayerShot(int x, int y) {
+		if (inputLocked) {
+			return;
+		}
+		BoardState.Shot result = enemyBoard.fireAt(x, y);
+		if (result == BoardState.Shot.ALREADY_FIRED) {
+			playerAction = "You already fired at " + coord(x, y) + ".";
+			updateScoreboard();
+			return;
+		}
+		renderShot(enemyTiles[x][y], result, enemyBoard, x, y);
+		playerAction = "You fired at " + coord(x, y) + " - " + describePlayerResult(result, enemyBoard, x, y);
+		updateScoreboard();
+
+		if (enemyBoard.fleet.isDestroyed()) {
+			endGame(true);
+			return;
+		}
+		aiTurn();
+	}
+
+	// Run the computer's turn off the FX thread (the Ollama call can be slow), then
+	// apply the result back on the FX thread.
+	private void aiTurn() {
+		inputLocked = true;
+		aiAction = "Enemy AI is thinking...";
+		updateScoreboard();
+		new Thread(() -> {
+			int[] cell = opponent.chooseTarget(playerBoard);
+			boolean fromModel = opponent.lastMoveFromModel();
+			long ms = opponent.lastMoveMillis();
+			Platform.runLater(() -> resolveAiShot(cell, fromModel, ms));
+		}, "ollama-move").start();
+	}
+
+	private void resolveAiShot(int[] cell, boolean fromModel, long ms) {
+		if (cell == null) {
+			inputLocked = false;
+			return;
+		}
+		int x = cell[0];
+		int y = cell[1];
+		BoardState.Shot result = playerBoard.fireAt(x, y);
+		renderShot(playerTiles[x][y], result, playerBoard, x, y);
+
+		String source = fromModel ? "[" + OLLAMA_MODEL + "]" : "[random]";
+		aiAction = "Enemy AI " + source + " fired at " + coord(x, y) + " - " + resultWord(result) + " (" + ms + "ms)";
+		playerAction = describeAiResult(result, playerBoard, x, y);
+		updateScoreboard();
+
+		if (playerBoard.fleet.isDestroyed()) {
+			endGame(false);
+			return;
+		}
+		inputLocked = false;
+	}
+
+	private void renderShot(Tile tile, BoardState.Shot result, BoardState board, int x, int y) {
+		switch (result) {
+		case MISS:
+			tile.setFill(MISS);
+			tile.drawChar('o');
+			break;
+		case HIT:
+			tile.setFill(HIT);
+			tile.drawChar(board.shipPositions[x][y]);
+			break;
+		case SUNK:
+			tile.setFill(SUNK);
+			tile.drawChar(board.shipPositions[x][y]);
+			break;
+		default:
+			break;
+		}
+	}
+
+	private void endGame(boolean playerWon) {
+		String message = playerWon ? "You sank the entire enemy fleet! You win!"
+				: "The enemy sank your entire fleet. You lose!";
+		Alert alert = new Alert(AlertType.INFORMATION, message + "\nThanks for playing!");
+		alert.setHeaderText(playerWon ? "Victory" : "Defeat");
+		alert.showAndWait();
+		Platform.exit();
+	}
+
+	// =========================================================================
+	// Shared board-building + rendering helpers
+	// =========================================================================
+
+	// The playing grid is one larger than the visible board because row/col 0 hold
+	// coordinate labels: 6x6 -> 7, 9x9 -> 10, 12x12 -> 13.
+	private int boardSizeForDifficulty(int difficulty) {
+		if (difficulty == 1) {
+			return 7;
+		}
+		if (difficulty == 3) {
+			return 13;
+		}
+		return 10; // standard (difficulty 2)
+	}
+
+	// Create one size x size grid of Tiles at the given x pixel offset, add them to
+	// the given pane, and return the array (indexed [x][y]). A null handler makes a
+	// non-interactive grid.
+	private Tile[][] buildGrid(Pane pane, int size, int xOffset, CellHandler handler) {
+		Tile[][] tiles = new Tile[size][size];
+		for (int y = 0; y < size; y++) {
+			for (int x = 0; x < size; x++) {
+				Tile tile = new Tile(x, y, handler);
+				tile.setTranslateX(xOffset + x * TILE);
+				tile.setTranslateY(TITLE_H + y * TILE);
+				pane.getChildren().add(tile);
+				tiles[x][y] = tile;
+			}
+		}
+		return tiles;
+	}
+
+	private void drawCoordinates(Tile[][] tiles, int size) {
+		char letter = 'A';
+		int number = 1;
+		for (int i = 1; i < size; i++) {
+			tiles[0][i].drawChar(letter);
+			tiles[i][0].drawInt(number);
+			letter += 1;
+			number += 1;
+		}
+	}
+
+	private void addTitle(Pane pane, String words, int xOffset) {
+		Text title = new Text(words);
+		title.setFont(Font.font(20));
+		title.setTranslateX(xOffset + 4);
+		title.setTranslateY(24);
+		pane.getChildren().add(title);
+	}
+
+	private void revealFleet(Tile[][] tiles, BoardState board) {
+		for (int x = 1; x < board.size; x++) {
+			for (int y = 1; y < board.size; y++) {
+				if (board.shipPositions[x][y] != ShipPlacement.EMPTY) {
+					tiles[x][y].showShip(board.shipPositions[x][y]);
+				}
+			}
+		}
+	}
+
+	// =========================================================================
+	// Scoreboard + text helpers
+	// =========================================================================
+
+	public void updateScoreboard() {
+		String accuracy = enemyBoard.shots == 0 ? "100" : actiongame.getAccuracy(enemyBoard.shots, enemyBoard.hits);
+		String text = "Battleship v2\nby James Potratz\n\n" + "Your ships:   " + playerBoard.fleet.shipsRemaining()
+				+ " / 5\n" + "Enemy ships:  " + enemyBoard.fleet.shipsRemaining() + " / 5\n" + "Your accuracy: "
+				+ accuracy + "%\n\n" + "YOU:\n" + playerAction + "\n\n" + "ENEMY AI:\n" + aiAction;
+		scoreboard.drawScore(text);
+	}
+
+	private String coord(int x, int y) {
+		return x + "," + actiongame.convertCoord(y);
+	}
+
+	private String resultWord(BoardState.Shot result) {
+		switch (result) {
+		case HIT:
+			return "HIT";
+		case SUNK:
+			return "SUNK";
+		case MISS:
+			return "MISS";
+		default:
+			return "";
+		}
+	}
+
+	private String describePlayerResult(BoardState.Shot result, BoardState board, int x, int y) {
+		if (result == BoardState.Shot.MISS) {
+			return "miss.";
+		}
+		Ship ship = board.fleet.shipForIcon(board.shipPositions[x][y]);
+		if (result == BoardState.Shot.SUNK) {
+			return "you SANK their " + ship.name + "!";
+		}
+		return "hit their " + ship.name + "!";
+	}
+
+	private String describeAiResult(BoardState.Shot result, BoardState board, int x, int y) {
+		if (result == BoardState.Shot.MISS) {
+			return "The enemy fired at your waters and missed.";
+		}
+		Ship ship = board.fleet.shipForIcon(board.shipPositions[x][y]);
+		if (result == BoardState.Shot.SUNK) {
+			return "The enemy SANK your " + ship.name + "!";
+		}
+		return "The enemy hit your " + ship.name + "!";
+	}
+
+	// =========================================================================
+	// Inner UI classes
+	// =========================================================================
+
 	public static class ScoreText extends Text {
-		// Default constructor
 		public ScoreText() {
 			this.setWrappingWidth(300);
 		}
 	}
 
-	// Class that creates a scoreboard. Uses same extension as tile.
 	public static class Scoreboard extends StackPane {
-		// Create the scoreboard message object that will be used
 		private ScoreText scoretext = new ScoreText();
 
-		// Default constructor
 		public Scoreboard() {
-			// Create border for scoreboard
 			Rectangle border = new Rectangle(300, 700);
-			// Set the fill to transparent
 			border.setFill(null);
-			// Increase the font of the text object to 26 Pixels
-			scoretext.setFont(Font.font(26));
-			// Set the alignment of the objects to the center
-			setAlignment(Pos.CENTER);
-			// Add objects of the stackpane text and border
+			scoretext.setFont(Font.font(20));
+			setAlignment(Pos.TOP_LEFT);
 			getChildren().addAll(border, scoretext);
 		}
 
-		// Method to display the scoreboard messages
 		private void drawScore(String words) {
 			scoretext.setText(words);
 		}
-
 	}
 
-	// Helper method to update the scoreboard. Calls the drawScore function from
-	// Scoreboard class
-	public static void updateScoreboard() {
-		scoreboard.drawScore("Battleship" + "\nCreated by James Potratz" + "\n\n\nScoreboard" + "\n\nMissiles left: "
-				+ missiles + "\nShips left: " + shipsRemaining + "\nAccuracy: "
-				+ actiongame.getAccuracy(missilesFired, hits) + "\n\n\nLast Action \n" + lastAction + "\n"
-				+ whatHappened);
-	}
-
-	// Helper method for first displaying the scoreboard. Slightly different than
-	// updateScoreboard, but the same premise
-	public static void initializeScoreboard() {
-		scoreboard.drawScore("Battleship" + "\nCreated by James Potratz" + "\n\n\nScoreboard" + "\n\nMissiles left: "
-				+ missiles + "\nShips left: " + shipsRemaining + "\nAccuracy: " + 100.00);
-	}
-
-	@Override
-	// Starts the game
-	public void start(Stage primaryStage) throws Exception {
-		// Call getDifficulty to see what type of game the user would like to play
-		getDifficulty();
-		// See if the user wants to cheat
-		cheats();
-		// Display the content
-		primaryStage.setScene(new Scene(createContent()));
-		primaryStage.show();
-		// Bring the game to the front, makes it the active window on desktop
-		// environment
-		primaryStage.toFront();
-	}
-
-	// Class that is used for displaying the objects
+	// One grid cell. Holds its own coordinates and, when given a handler, invokes it
+	// on a left click of a playable (non-label) cell.
 	public class Tile extends StackPane {
-
-		// Application is empty by default
 		private Text text = new Text();
-		// X and Y coordinates. Initialized by the constructor
+		private Rectangle border = new Rectangle(TILE, TILE);
 		public int xcoord;
 		public int ycoord;
 
-		// Default constructor for a tile object. asks for x and y values so its
-		// position is known recursively.
-		public Tile(int x, int y) {
-			// Creating a border for the rectangle
-			Rectangle border = new Rectangle(50, 50);
-			// Set the fill to transparent
-			border.setFill(null);
-			// Store the location of the tile
-			storeLocation(x, y);
-			// Set the border to black
-			border.setStroke(Color.BLACK);
-			// Increase the font of the text object to 32 Pixels
-			text.setFont(Font.font(32));
-			// Set the alignment of the objects to the center
-			setAlignment(Pos.CENTER);
-			// Add objects of the stackpane text and border
-			getChildren().addAll(border, text);
-			// This function defines what happens when you left click. Most of the functions
-			// called are from actiongame class
-			setOnMouseClicked(event -> {
-				// If left click
-				if (event.getButton() == MouseButton.PRIMARY) {
-					// Check if it is a coordinate tile
-					if (!(this.getXCoord() == 0 || this.getYCoord() == 0)) {
-						// If not coordinate, increment missilesFired
-						missilesFired = missilesFired + 1;
-						// Check if you hit a ship with your missile
-						if (actiongame.determineHit(this.getXCoord(), this.getYCoord())) {
-							// If hit, call the drawChar function to write what ship it was to the tile
-							drawChar(actiongame.findShip(getXCoord(), getYCoord()).getShipIcon());
-						} else {
-							// If not a hit, draw an X. If you hit the same spot twice, this will also draw
-							// an X
-							drawChar('X');
-						}
-					}
-				}
-
-			});
-
-		};
-
-		// Helper function to draw the char
-		public void drawChar(char letter) {
-			String temp = "" + letter;
-			text.setText(temp);
-		}
-
-		// Helper function to draw an int to a tile. Used for coordinates
-		private void drawInt(int number) {
-			String temp = "" + number;
-			text.setText(temp);
-		}
-
-		// Helper method to see what value is currently in the tile. Currently not used
-		public String getValue() {
-			return text.getText();
-		}
-
-		// Helper method to write the location of the tile within the tile object itself
-		public void storeLocation(int x, int y) {
+		public Tile(int x, int y, CellHandler handler) {
 			xcoord = x;
 			ycoord = y;
-		}
+			border.setFill((x == 0 || y == 0) ? null : WATER);
+			border.setStroke(Color.BLACK);
+			text.setFont(Font.font(28));
+			setAlignment(Pos.CENTER);
+			getChildren().addAll(border, text);
 
-		// Helper method to see where the tile is located on the X coordinate
-		public int getXCoord() {
-			return xcoord;
-		}
-
-		// Helper method to see where the tile is located on the y coordinate
-		public int getYCoord() {
-			return ycoord;
-		}
-
-	}
-
-	// Class that defines a basic ship.
-	static public class Ship {
-		// Variables that hold important ship information
-		public int shipLength;
-		public int shipHealth;
-		public boolean isSunk = false;
-		public char shipIcon;
-		public String shipName;
-
-		// Constructor for Ship object. Must be implemented by subclasses
-		public Ship() {
-		}
-
-		// Helper method to damage the ship because it has been hit
-		public void hitShip() {
-			shipHealth = shipHealth - 1;
-			actiongame.updateWhatHappened(
-					"You have hit their " + getShipName() + "! \nNice Hit! \nRemaining HP is " + getShipHealth());
-			if (shipHealth == 0) {
-				sinkShip();
-			}
-			hits = hits + 1;
-			updateScoreboard();
-		}
-
-		// Helper method to let the player know you missed the ship
-		public void missShip() {
-			actiongame.updateWhatHappened("You missed! You suck!");
-			updateScoreboard();
-		}
-
-		// Helper method to sink the ship because its health is 0
-		public void sinkShip() {
-			actiongame.updateWhatHappened("You have sunk their " + getShipName() + "!\nYou are good at this!");
-			isSunk = true;
-			shipsRemaining = shipsRemaining - 1;
-			updateScoreboard();
-		}
-
-		// Helper method to call the ship sunk status
-		public boolean getIsSunk() {
-			return isSunk;
-		}
-
-		// Get the ship health
-		public int getShipHealth() {
-			return shipHealth;
-		}
-
-		// Get the name of the ship
-		public String getShipName() {
-			return shipName;
-		}
-
-		// Get the ships Icon
-		public char getShipIcon() {
-			return shipIcon;
-		}
-
-		// Get the ship length
-		public int getShipLength() {
-			return shipLength;
-		}
-
-	}
-
-	// Class extended ship to define a carrier. Contains default constructor
-	// information
-	public static class carrierShip extends Ship {
-
-		public carrierShip() {
-			shipLength = 5;
-			shipHealth = 5;
-			shipIcon = 'R';
-			shipName = "Carrier USS Mississippi";
-		}
-	}
-
-	// Class extended ship to define a battleship. Contains default constructor
-	// information
-	private static class battleshipShip extends Ship {
-
-		public battleshipShip() {
-			shipLength = 4;
-			shipHealth = 4;
-			shipIcon = 'T';
-			shipName = "Battleship USS Arizona";
-		}
-	}
-
-	// Class extended ship to define a destroyer. Contains default constructor
-	// information
-	private static class destroyerShip extends Ship {
-
-		public destroyerShip() {
-			shipLength = 3;
-			shipHealth = 3;
-			shipIcon = 'Y';
-			shipName = "Destroyer USS Decatur";
-		}
-	}
-
-	// Class extended ship to define a Submarine. Contains default constructor
-	// information
-	private static class submarineShip extends Ship {
-
-		public submarineShip() {
-			shipLength = 3;
-			shipHealth = 3;
-			shipIcon = 'S';
-			shipName = "Submarine USS Barracuda";
-		}
-	}
-
-	// Class extended ship to define a Patrol. Contains default constructor
-	// information
-	private static class patrolShip extends Ship {
-
-		public patrolShip() {
-			shipLength = 2;
-			shipHealth = 2;
-			shipIcon = 'P';
-			shipName = "Patrol Ship USS Pegasus";
-		}
-	}
-
-	// Helper method to draw the coordinates to the board. uses
-	// drawCoordinatesHelper
-	public void drawCoordinatesPerDifficulty() {
-		// If beginner
-		if (battleship.difficulty == 1) {
-			drawCoordinatesHelper(1);
-		}
-		// If standard
-		if (battleship.difficulty == 2) {
-			drawCoordinatesHelper(2);
-		}
-		// If advanced
-		if (battleship.difficulty == 3) {
-			drawCoordinatesHelper(3);
-		}
-
-	}
-
-	// Helper method that determines coordinates for each difficulty
-	public void drawCoordinatesHelper(int difficulty) {
-		// Initialize variables to the beginning values. They will be incremented.
-		char coordinateLetter = 'A';
-		int coordinateInteger = 1;
-		// Set the boundary of the board for each difficulty. Boundary is 1 greater than
-		// the difficulty map size
-		if (difficulty == 1) {
-			boundary = 7;
-		}
-		if (difficulty == 2) {
-			boundary = 10;
-		}
-		if (difficulty == 3) {
-			boundary = 13;
-		}
-		// Write the coordinates to the board. Increment each as it proceeds through the
-		// for loop
-		for (int i = 1; i < boundary; i++) {
-			board[0][i].drawChar(coordinateLetter);
-			board[i][0].drawInt(coordinateInteger);
-			// ACSII chars can be incremented
-			coordinateLetter += 1;
-			coordinateInteger += 1;
-		}
-	}
-
-	// Function to generate ship placement
-	// General rules: Ship cannot be placed on top of coordinates.
-	// Ship cannot extend off board.
-	// Ship cannot be placed where there is already a ship
-	public void generateShipPlacement(Ship ship) {
-		// Define array boundary as pane boundary - 1. ARRAYS START AT 0
-		int arrayBoundary = boundary - 1;
-		// Generate random x, y coordinates between the boundaries. min is 1 because
-		// coordinates are at 0
-		int startingPosX = randomInt(1, arrayBoundary);
-		int startingPosY = randomInt(1, arrayBoundary);
-		// Define a variable to randomly choose whether to draw the ship horizantally or
-		// vertically. 1 is vertical, 2 is horizantal
-		int drawVertOrHori = randomInt(1, 2);
-		// Define boolean for while loops. Used to check if the position can be drawn
-		boolean validCoords = false;
-
-		// Main logic while loops for calculating ship placement
-		while (!validCoords) {
-			// Loop to ensure the ship can be drawn right, down, and not in an occupied
-			// space. The if statement can be broken down as follows.
-			// Can it be drawn right without exceeding boundary, if it is being drawn right
-			// Is it occupied to the right, if it is being drawn right
-			// can it be drawn down without exceeding boundary, if it is being drawn down
-			// Is it occupied downward, if it is being drawn down
-			try {
-				// If any of these statements are true, re-generate the starting position of the
-				// ship
-				if ((startingPosX + ship.getShipLength() > arrayBoundary && drawVertOrHori == 2)
-						|| (isOccupiedHoriz(startingPosX, startingPosY, ship) && drawVertOrHori == 2)
-						|| (startingPosY + ship.getShipLength() > arrayBoundary && drawVertOrHori == 1)
-						|| (isOccupiedVert(startingPosX, startingPosY, ship) && drawVertOrHori == 1)) {
-					startingPosX = randomInt(1, arrayBoundary);
-					startingPosY = randomInt(1, arrayBoundary);
-				}
-				// Else, the ship is valid. End the while loop
-				else {
-					validCoords = true;
-				}
-			} catch (ArrayIndexOutOfBoundsException e) {
-				throw e;
+			if (handler != null) {
+				setOnMouseClicked(event -> {
+					if (event.getButton() == MouseButton.PRIMARY && xcoord != 0 && ycoord != 0) {
+						handler.handle(xcoord, ycoord);
+					}
+				});
 			}
 		}
-		// If being drawn down, draw it. Coordinates already confirmed valid
-		if (drawVertOrHori == 1) {
-			drawShipVert(startingPosX, startingPosY, ship);
-		} // If being drawn right, draw it. Coordinates already confirmed valid
-		if (drawVertOrHori == 2) {
-			drawShipHori(startingPosX, startingPosY, ship);
+
+		public void setFill(Color color) {
+			border.setFill(color);
+		}
+
+		public void setWater() {
+			border.setFill(WATER);
+			text.setText("");
+		}
+
+		public void showShip(char icon) {
+			border.setFill(OWN_SHIP);
+			drawChar(icon);
+		}
+
+		public void drawChar(char letter) {
+			text.setText("" + letter);
+		}
+
+		private void drawInt(int number) {
+			text.setText("" + number);
 		}
 	}
 
-	// Function to draw the ship vertically
-	public void drawShipVert(int startingX, int startingY, Ship ship) {
-		// For loop will continue for the length of the ship
-		for (int i = 0; i < ship.getShipLength(); i++) {
-			// Write the ship positions to the array
-			shipPositions[startingX][startingY + i] = ship.getShipIcon();
-			// If you are cheating, write it to the board
-			if (revealMapCheat) {
-				board[startingX][startingY + i].drawChar(ship.getShipIcon());
-			}
-		}
-	}
-
-	// Function to draw the ship horizantally
-	public void drawShipHori(int startingX, int startingY, Ship ship) {
-		// For loop will continue for the length of the ship
-		for (int i = 0; i < ship.getShipLength(); i++) {
-			// Write the ship positions to the array
-			shipPositions[startingX + i][startingY] = ship.getShipIcon();
-			// If you are cheating, write it to the board
-			if (revealMapCheat) {
-				board[startingX + i][startingY].drawChar(ship.getShipIcon());
-			}
-		}
-	}
-
-	// Function to check if the board will be occupied horizantally for the length
-	// of the ship
-	// Passes in starting coordinates and ship object
-	public boolean isOccupiedHoriz(int xcoord, int ycoord, Ship ship) {
-		// Boolean helper definition
-		boolean check = false;
-		// Return false immediatly if its a carrier. No other ships have been drawn yet.
-		// See generateShips()
-		if (ship.getShipIcon() == 'R') {
-			return false;
-		}
-		// Check if occupied for the length of the ship horizantally
-		try {
-			for (int i = 0; i < ship.getShipLength(); i++) {
-				// shipPositions array is initialized to Z. If there is anything but but Z
-				// there, it is occupied.
-				if (shipPositions[xcoord + i][ycoord] != 'Z') {
-					// It is occupied, return true, break
-					check = true;
-					break;
-				}
-			}
-		} catch (ArrayIndexOutOfBoundsException e) {
-		}
-		return check;
-	}
-
-	// Function to check if the board will be occupied vertically for the length of
-	// the ship
-	// Passes in starting coordinates and ship object
-	public boolean isOccupiedVert(int xcoord, int ycoord, Ship ship) {
-		// Boolean helper definition
-		boolean check = false;
-		// Return false immediately if its a carrier. No other ships have been drawn
-		// yet. See generateShips()
-		if (ship.getShipIcon() == 'R') {
-			return false;
-		}
-		// Check if occupied for the length of the ship vertically
-		try {
-			for (int i = 0; i < ship.getShipLength(); i++) {
-				// Check if the value is not Z. If it isn't Z, it is occupied
-				if (shipPositions[xcoord][ycoord + i] != 'Z') {
-					// It is occupied, return true, break
-					check = true;
-					break;
-				}
-			}
-		} catch (ArrayIndexOutOfBoundsException e) {
-		}
-		return check;
-	}
-
-	// Generate a random integer between certain values. Used when generating ship
-	// placement
-	// min and max are inclusive
-	public static int randomInt(int min, int max) {
-		Random rand = new Random();
-		int randomNum = rand.nextInt((max - min) + 1) + min;
-		return randomNum;
-	}
-
-	// Initialize the array of characters to be 'Z' in the shipPositions array
-	public static void initializeShipPositionArray(int size) {
-		shipPositions = new char[size][size];
-		for (int row = 1; row < size; row++)
-			for (int col = 1; col < size; col++)
-				shipPositions[row][col] = 'Z';
-	}
-
-	// This function creates an alert box asking you to choose your difficulty.
-	public static void getDifficulty() {
-		// New alert object with three button objects
-		Alert alert = new Alert(AlertType.CONFIRMATION, " ", beginner, standard, advanced);
-		// Set the title, header and content message
-		alert.setTitle("Welcome to Battleship!");
-		alert.setHeaderText(
-				"Please choose your difficulty \n\n Please note: Beginner sometimes fails to load due to the small size, simply restart.");
-		alert.setContentText("Created by James Potratz for CSIS 222");
-		alert.showAndWait();
-		// Check which button was clicked
-		if (alert.getResult() == beginner) {
-			battleship.difficulty = 1;
-		}
-		if (alert.getResult() == standard) {
-			battleship.difficulty = 2;
-		}
-		if (alert.getResult() == advanced) {
-			battleship.difficulty = 3;
-		}
-	}
-
-	// This function is to make the teachers grading easier. Hi Mr(s). Carol
-	public static void cheats() {
-		// New alert object with 2 buttons
-		Alert alert = new Alert(AlertType.CONFIRMATION, "Would you like to cheat?", revealMap, ButtonType.NO);
-		// Set title , header and content message
-		alert.setTitle("Cheats");
-		alert.setHeaderText(
-				"Would you like to cheat? \n Please note, when clicking on a ship, it will already be revealed.");
-		alert.setContentText("Created by James Potratz for CSIS 222");
-		alert.showAndWait();
-		// If you are cheating, set the cheat boolean to true.
-		if (alert.getResult() == revealMap) {
-			revealMapCheat = true;
-		}
-	}
-
-	// Launch the applications
 	public static void main(String[] args) {
 		launch(args);
 	}

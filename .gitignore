@@ -2,6 +2,10 @@
 # Created by https://www.gitignore.io/api/java,eclipse
 # Edit at https://www.gitignore.io/?templates=java,eclipse
 
+# v2: compiled test classes and downloaded test framework
+bin-test/
+lib/
+
 ### Eclipse ###
 
 .metadata

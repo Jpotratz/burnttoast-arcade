@@ -1,0 +1,14 @@
+# BurntToast deployment (Dockge-style stack). Caddy fronts this as
+# games.burnttoast.vip -> localhost:3007.
+services:
+  arcade:
+    build: .
+    container_name: burnttoast-arcade
+    restart: unless-stopped
+    ports:
+      - "3007:8080"
+    environment:
+      OLLAMA_URL: http://192.168.1.210:30068
+      OLLAMA_MODEL: qwen2.5:7b
+    volumes:
+      - ./data:/data

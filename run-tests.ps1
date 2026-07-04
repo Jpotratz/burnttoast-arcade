@@ -3,7 +3,7 @@
 # Usage:  ./run-tests.ps1
 #
 # Requires a JDK. It uses $env:JAVA_HOME if set, otherwise falls back to the
-# Liberica JDK 17 install. The JUnit 5 standalone launcher is downloaded into
+# Liberica JDK 21 install. The JUnit 5 standalone launcher is downloaded into
 # lib/ automatically the first time if it isn't already present.
 
 $ErrorActionPreference = "Stop"
@@ -13,8 +13,8 @@ if ($env:JAVA_HOME) {
     $javac = Join-Path $env:JAVA_HOME "bin\javac.exe"
     $java  = Join-Path $env:JAVA_HOME "bin\java.exe"
 } else {
-    $javac = "C:\Program Files\BellSoft\LibericaJDK-17-Full\bin\javac.exe"
-    $java  = "C:\Program Files\BellSoft\LibericaJDK-17-Full\bin\java.exe"
+    $javac = "C:\Program Files\BellSoft\LibericaJDK-21-Full\bin\javac.exe"
+    $java  = "C:\Program Files\BellSoft\LibericaJDK-21-Full\bin\java.exe"
 }
 
 # --- ensure the JUnit standalone launcher is available --------------------

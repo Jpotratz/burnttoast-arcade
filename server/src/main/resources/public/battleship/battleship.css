@@ -47,6 +47,11 @@ body { padding: 20px; }
 .cell.ghost-ok  { background: rgba(56, 224, 123, 0.35); border-color: var(--green); }
 .cell.ghost-bad { background: rgba(255, 77, 94, 0.35);  border-color: var(--red); }
 
+/* salvo: armed targets awaiting the volley */
+.cell.armed { border-color: var(--yellow); box-shadow: 0 0 10px var(--yellow); }
+.cell.armed::after { content: "\25CE"; color: var(--yellow); font-size: calc(var(--tile) * 0.55);
+                     font-weight: bold; text-shadow: 0 0 8px var(--yellow); }
+
 @keyframes pop { from { transform: scale(0.15); } to { transform: scale(1); } }
 
 /* ---- placement layout ---- */

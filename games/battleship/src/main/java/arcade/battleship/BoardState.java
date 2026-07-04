@@ -30,7 +30,11 @@ public class BoardState {
 	}
 
 	public void placeFleetRandomly(Random rng) {
-		ShipPlacement.placeFleetRandomly(shipPositions, size, fleet.lengths(), fleet.icons(), rng);
+		placeFleetRandomly(rng, false);
+	}
+
+	public void placeFleetRandomly(Random rng, boolean noTouch) {
+		ShipPlacement.placeFleetRandomly(shipPositions, size, fleet.lengths(), fleet.icons(), rng, noTouch);
 	}
 
 	public boolean inBounds(int x, int y) {

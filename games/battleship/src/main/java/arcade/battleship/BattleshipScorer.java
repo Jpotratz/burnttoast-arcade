@@ -27,9 +27,13 @@ public class BattleshipScorer {
 		this.keeper = new ScoreKeeper(cheatEnabled ? 0 : multiplierFor(boardSize));
 	}
 
+	// x1 (6x6) / x1.5 (9x9) / x1.75 (classic 10x10) / x2 (12x12).
 	public static double multiplierFor(int boardSize) {
 		if (boardSize >= 12) {
 			return 2.0;
+		}
+		if (boardSize >= 10) {
+			return 1.75;
 		}
 		if (boardSize >= 9) {
 			return 1.5;

@@ -58,6 +58,32 @@ public class HuntTargetOpponent implements Opponent<BoardState, Coord> {
 		return board.randomUnfiredCell(rng);
 	}
 
+	// Salvo volley: n distinct cells chosen from the SAME pre-volley knowledge
+	// (official salvo rules -- no feedback between shots of one volley). Highest
+	// priority tiers first: line extensions, then hit neighbors, then parity
+	// hunting, then anything unfired.
+	@Override
+	public java.util.List<Coord> chooseVolley(BoardState board, int n) {
+		LinkedHashSet<Coord> picks = new LinkedHashSet<>();
+		List<Coord> active = activeHits(board);
+		addShuffled(picks, lineExtensions(board, active), n);
+		addShuffled(picks, unfiredNeighbors(board, active), n);
+		addShuffled(picks, board.unfiredCells(Math.max(2, board.fleet.shortestAfloat())), n);
+		addShuffled(picks, board.unfiredCells(1), n);
+		return new ArrayList<>(picks);
+	}
+
+	private void addShuffled(LinkedHashSet<Coord> picks, List<Coord> tier, int n) {
+		List<Coord> pool = new ArrayList<>(tier);
+		java.util.Collections.shuffle(pool, rng);
+		for (Coord c : pool) {
+			if (picks.size() >= n) {
+				return;
+			}
+			picks.add(c);
+		}
+	}
+
 	@Override
 	public MoveInfo lastMoveInfo() {
 		return new MoveInfo("tactical", -1);

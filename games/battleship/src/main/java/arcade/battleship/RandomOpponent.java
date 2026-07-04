@@ -28,6 +28,13 @@ public class RandomOpponent implements Opponent<BoardState, Coord> {
 	}
 
 	@Override
+	public java.util.List<Coord> chooseVolley(BoardState target, int n) {
+		java.util.List<Coord> pool = target.unfiredCells(1);
+		java.util.Collections.shuffle(pool, rng);
+		return pool.subList(0, Math.min(n, pool.size()));
+	}
+
+	@Override
 	public MoveInfo lastMoveInfo() {
 		return new MoveInfo("random", -1);
 	}

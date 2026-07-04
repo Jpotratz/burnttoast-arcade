@@ -21,8 +21,8 @@ import java.util.List;
 
 public class ScoreDb implements AutoCloseable {
 
-	public record ScoreRow(String initials, int score, int boardSize, String opponent, boolean won, int shots,
-			int hits, String playedAt) {
+	public record ScoreRow(String initials, int score, int boardSize, String opponent, String mode, boolean won,
+			int shots, int hits, String playedAt) {
 	}
 
 	private final Connection conn;
@@ -50,6 +50,12 @@ public class ScoreDb implements AutoCloseable {
 						    played_at   TEXT    NOT NULL DEFAULT (datetime('now'))
 						)""");
 				st.execute("CREATE INDEX IF NOT EXISTS idx_games_leaderboard ON games (game, score DESC)");
+				// Migration for pre-rules-pack databases: add the mode column.
+				try {
+					st.execute("ALTER TABLE games ADD COLUMN mode TEXT NOT NULL DEFAULT 'classic'");
+				} catch (SQLException alreadyThere) {
+					// column exists -- fine
+				}
 			}
 		} catch (Exception e) {
 			throw new RuntimeException("failed to open score DB at " + file, e);
@@ -58,20 +64,21 @@ public class ScoreDb implements AutoCloseable {
 
 	// Persist a finished game (initials come later, via setInitials). Returns the
 	// row id so the session can attach initials after the player types them.
-	public synchronized long recordGame(String game, int boardSize, String opponent, boolean cheat, boolean won,
-			int score, int shots, int hits, long durationMs) {
-		String sql = "INSERT INTO games (game, score, won, board_size, opponent, cheat, shots, hits, duration_ms) "
-				+ "VALUES (?,?,?,?,?,?,?,?,?)";
+	public synchronized long recordGame(String game, int boardSize, String opponent, String mode, boolean cheat,
+			boolean won, int score, int shots, int hits, long durationMs) {
+		String sql = "INSERT INTO games (game, score, won, board_size, opponent, mode, cheat, shots, hits, duration_ms) "
+				+ "VALUES (?,?,?,?,?,?,?,?,?,?)";
 		try (PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
 			ps.setString(1, game);
 			ps.setInt(2, score);
 			ps.setInt(3, won ? 1 : 0);
 			ps.setInt(4, boardSize);
 			ps.setString(5, opponent);
-			ps.setInt(6, cheat ? 1 : 0);
-			ps.setInt(7, shots);
-			ps.setInt(8, hits);
-			ps.setLong(9, durationMs);
+			ps.setString(6, mode);
+			ps.setInt(7, cheat ? 1 : 0);
+			ps.setInt(8, shots);
+			ps.setInt(9, hits);
+			ps.setLong(10, durationMs);
 			ps.executeUpdate();
 			try (ResultSet keys = ps.getGeneratedKeys()) {
 				keys.next();
@@ -95,7 +102,7 @@ public class ScoreDb implements AutoCloseable {
 	// Top scores for a game (optionally one board size). Cheated games score 0
 	// and anonymous games have no initials; both are excluded.
 	public synchronized List<ScoreRow> top(String game, Integer boardSize, int limit) {
-		String sql = "SELECT initials, score, board_size, opponent, won, shots, hits, played_at FROM games "
+		String sql = "SELECT initials, score, board_size, opponent, mode, won, shots, hits, played_at FROM games "
 				+ "WHERE game = ? AND cheat = 0 AND initials IS NOT NULL "
 				+ (boardSize != null ? "AND board_size = ? " : "") + "ORDER BY score DESC, id ASC LIMIT ?";
 		return query(sql, game, boardSize, limit);
@@ -103,7 +110,7 @@ public class ScoreDb implements AutoCloseable {
 
 	// Full history, newest first -- the "everything ever played" view.
 	public synchronized List<ScoreRow> history(String game, int limit) {
-		String sql = "SELECT initials, score, board_size, opponent, won, shots, hits, played_at FROM games "
+		String sql = "SELECT initials, score, board_size, opponent, mode, won, shots, hits, played_at FROM games "
 				+ "WHERE game = ? ORDER BY id DESC LIMIT ?";
 		return query(sql, game, null, limit);
 	}
@@ -126,8 +133,8 @@ public class ScoreDb implements AutoCloseable {
 				List<ScoreRow> rows = new ArrayList<>();
 				while (rs.next()) {
 					rows.add(new ScoreRow(rs.getString("initials"), rs.getInt("score"), rs.getInt("board_size"),
-							rs.getString("opponent"), rs.getInt("won") == 1, rs.getInt("shots"), rs.getInt("hits"),
-							rs.getString("played_at")));
+							rs.getString("opponent"), rs.getString("mode"), rs.getInt("won") == 1,
+							rs.getInt("shots"), rs.getInt("hits"), rs.getString("played_at")));
 				}
 				return rows;
 			}

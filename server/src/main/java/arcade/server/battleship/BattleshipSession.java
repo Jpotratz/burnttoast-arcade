@@ -51,7 +51,7 @@ public class BattleshipSession {
 		this.opponentName = opponentName;
 		this.playerBoard = new BoardState(config.boardSize());
 		this.enemyBoard = new BoardState(config.boardSize());
-		this.enemyBoard.placeFleetRandomly(rng);
+		this.enemyBoard.placeFleetRandomly(rng, config.noTouch());
 		this.scorer = new BattleshipScorer(config.boardSize(), config.revealCheat());
 	}
 
@@ -90,6 +90,9 @@ public class BattleshipSession {
 	public Map<String, Object> stateView(String gameId) {
 		return Map.ofEntries(Map.entry("gameId", gameId), Map.entry("phase", phase.name()),
 				Map.entry("size", config.boardSize()), Map.entry("cheat", config.revealCheat()),
+				Map.entry("salvo", config.salvo()), Map.entry("noTouch", config.noTouch()),
+				// In salvo mode your volley size == your surviving ships.
+				Map.entry("volleySize", config.salvo() ? playerBoard.fleet.shipsRemaining() : 1),
 				Map.entry("opponent", opponentName), Map.entry("score", scorer.score()),
 				Map.entry("streakFactor", scorer.streakFactor()),
 				Map.entry("accuracy", BattleshipScorer.accuracyPercent(enemyBoard.shots, enemyBoard.hits)),

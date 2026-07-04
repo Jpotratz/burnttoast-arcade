@@ -31,7 +31,7 @@ let locked = false;   // input lock while a shot is in flight
 function buildBoard(container, size, clickable) {
   container.innerHTML = "";
   container.classList.toggle("clickable", clickable);
-  container.style.setProperty("--tile", size <= 6 ? "52px" : size <= 9 ? "44px" : "36px");
+  container.style.setProperty("--tile", size <= 6 ? "52px" : size <= 9 ? "44px" : size <= 10 ? "40px" : "36px");
   container.style.gridTemplateColumns = `repeat(${size + 1}, var(--tile))`;
   const cells = [];
   container.appendChild(label(""));
@@ -86,10 +86,25 @@ async function loadLeaderboard() {
 $("deploy").addEventListener("click", async () => {
   const boardSize = Number(document.querySelector('input[name="size"]:checked').value);
   const opponent = document.querySelector('input[name="opponent"]:checked').value;
-  game = await apiCall("game", { boardSize, opponent, cheat: $("cheat").checked });
+  game = await apiCall("game", {
+    boardSize, opponent,
+    cheat: $("cheat").checked,
+    salvo: $("salvo").checked,
+    noTouch: $("notouch").checked,
+  });
   gameId = game.gameId;
   startPlacement();
 });
+
+// No-touch needs at least 9x9 -- grey the option out on the beginner board.
+for (const radio of document.querySelectorAll('input[name="size"]')) {
+  radio.addEventListener("change", () => {
+    const tooSmall = Number(radio.value) < 9;
+    $("notouch").disabled = tooSmall;
+    if (tooSmall) $("notouch").checked = false;
+    $("notouch-label").style.opacity = tooSmall ? 0.4 : 1;
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Screen 2: placement (local state; submitted in one POST on START BATTLE)
@@ -127,8 +142,18 @@ function shipCells(x, y, len, horizontal) {
 }
 
 function fits(x, y, len, horizontal) {
-  return shipCells(x, y, len, horizontal).every(
-    ([cx, cy]) => cx < game.size && cy < game.size && !place.grid[cx][cy]);
+  return shipCells(x, y, len, horizontal).every(([cx, cy]) => {
+    if (cx >= game.size || cy >= game.size || place.grid[cx][cy]) return false;
+    if (!game.noTouch) return true;
+    // Sea Battle rule: all 8 neighbors of every ship cell must be open water.
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const nx = cx + dx, ny = cy + dy;
+        if (nx >= 0 && nx < game.size && ny >= 0 && ny < game.size && place.grid[nx][ny]) return false;
+      }
+    }
+    return true;
+  });
 }
 
 function ghost(cell, on) {
@@ -218,22 +243,60 @@ $("start-battle").addEventListener("click", async () => {
 // Screen 3: battle
 // ---------------------------------------------------------------------------
 
-const battle = { yours: null, enemy: null };
+const battle = { yours: null, enemy: null, armed: [] };
 
 function startBattle() {
   battle.yours = buildBoard($("your-board"), game.size, false);
   battle.enemy = buildBoard($("enemy-board"), game.size, true);
+  battle.armed = [];
   for (const row of battle.enemy) {
     for (const cell of row) {
-      cell.addEventListener("click", () => fire(Number(cell.dataset.x), Number(cell.dataset.y)));
+      cell.addEventListener("click", () => {
+        const x = Number(cell.dataset.x), y = Number(cell.dataset.y);
+        if (game.salvo) toggleArm(cell, x, y);
+        else fire([{ x, y }]);
+      });
     }
   }
   locked = false;
-  $("log-you").textContent = "Fire at the enemy waters.";
+  $("log-you").textContent = game.salvo
+    ? "Salvo mode: pick your targets, the volley fires on the last one."
+    : "Fire at the enemy waters.";
   $("log-ai").textContent = "Waiting for your first shot...";
-  banner("YOUR TURN — fire at the enemy waters", "neon-cyan");
+  yourTurnBanner();
   renderState();
   show("screen-battle");
+}
+
+function yourTurnBanner() {
+  if (game.salvo) {
+    const left = game.volleySize - battle.armed.length;
+    banner(`YOUR TURN — select ${left} more target${left === 1 ? "" : "s"}`, "neon-cyan");
+  } else {
+    banner("YOUR TURN — fire at the enemy waters", "neon-cyan");
+  }
+}
+
+// Salvo: clicking arms/disarms a target; the volley fires automatically when
+// the last slot is filled.
+function toggleArm(cell, x, y) {
+  if (locked || game.phase !== "BATTLE" || cell.classList.contains("spent")) return;
+  const idx = battle.armed.findIndex((s) => s.x === x && s.y === y);
+  if (idx >= 0) {
+    battle.armed.splice(idx, 1);
+    cell.classList.remove("armed");
+    yourTurnBanner();
+    return;
+  }
+  battle.armed.push({ x, y });
+  cell.classList.add("armed");
+  if (battle.armed.length >= game.volleySize) {
+    const volley = battle.armed;
+    battle.armed = [];
+    fire(volley);
+  } else {
+    yourTurnBanner();
+  }
 }
 
 function banner(text, cls, thinking = false) {
@@ -287,43 +350,58 @@ function renderState() {
   }
 }
 
-async function fire(x, y) {
+async function fire(shots) {
   if (locked || game.phase !== "BATTLE") return;
-  if (game.enemyBoard.shots.some((s) => s.x === x && s.y === y)) {
-    $("log-you").textContent = `You already fired at ${coordStr(x, y)}.`;
+  if (shots.length === 1 && game.enemyBoard.shots.some((s) => s.x === shots[0].x && s.y === shots[0].y)) {
+    $("log-you").textContent = `You already fired at ${coordStr(shots[0].x, shots[0].y)}.`;
     return;
   }
   locked = true;
   banner("ENEMY AI IS THINKING…", "neon-magenta", true);
   try {
-    const resp = await apiCall("fire", { gameId, x, y });
+    const resp = await apiCall("fire", { gameId, shots });
     game = resp.state;
     renderState();
 
-    const p = resp.playerShot;
-    const hitText = p.result === "MISS" ? "miss."
-      : p.result === "SUNK" ? `you SANK their ${p.shipName}!` : `hit their ${p.shipName}!`;
-    const pts = resp.points > 0 ? `  [+${resp.points}]` : "";
-    $("log-you").textContent = `You fired at ${coordStr(x, y)} - ${hitText}${pts}`;
-    if (resp.points > 0) floatPoints(battle.enemy[x][y], resp.points);
-
-    const a = resp.aiShot;
-    if (a) {
-      const timing = a.millis >= 0 ? ` (${a.millis}ms)` : "";
-      $("log-ai").textContent = `AI [${a.source}] fired at ${coordStr(a.x, a.y)} - ${a.result}${timing}`;
+    $("log-you").textContent = describeVolley("You", resp.playerShots, resp.points);
+    for (const p of resp.playerShots) {
+      if (p.points > 0) floatPoints(battle.enemy[p.x][p.y], p.points);
+    }
+    if (resp.aiShots.length > 0) {
+      const src = resp.aiShots[0].source;
+      const timing = resp.aiShots[0].millis >= 0 ? ` (${resp.aiShots[0].millis}ms)` : "";
+      $("log-ai").textContent = describeVolley(`AI [${src}]`, resp.aiShots, 0) + timing;
     }
 
     if (game.phase === "FINISHED") {
       endGame();
     } else {
-      banner("YOUR TURN — fire at the enemy waters", "neon-cyan");
+      yourTurnBanner();
       locked = false;
     }
   } catch (err) {
     $("log-you").textContent = String(err.message || err);
-    banner("YOUR TURN — fire at the enemy waters", "neon-cyan");
+    for (const row of battle.enemy) for (const c of row) c.classList.remove("armed");
+    battle.armed = [];
+    yourTurnBanner();
     locked = false;
   }
+}
+
+// One log line for a volley of any size. Single shots keep the detailed
+// classic wording; volleys summarize official-salvo style.
+function describeVolley(who, shots, points) {
+  const pts = points > 0 ? `  [+${points}]` : "";
+  if (shots.length === 1) {
+    const p = shots[0];
+    const hitText = p.result === "MISS" ? "miss."
+      : p.result === "SUNK" ? `SANK the ${p.shipName}!` : `hit the ${p.shipName}!`;
+    return `${who} fired at ${coordStr(p.x, p.y)} - ${hitText}${pts}`;
+  }
+  const hits = shots.filter((s) => s.result !== "MISS").length;
+  const sunk = shots.filter((s) => s.result === "SUNK").map((s) => s.shipName);
+  const sunkText = sunk.length > 0 ? ` Sank: ${sunk.join(", ")}.` : "";
+  return `${who} volley: ${hits} hit${hits === 1 ? "" : "s"}, ${shots.length - hits} miss${shots.length - hits === 1 ? "" : "es"}.${sunkText}${pts}`;
 }
 
 function floatPoints(cell, points) {

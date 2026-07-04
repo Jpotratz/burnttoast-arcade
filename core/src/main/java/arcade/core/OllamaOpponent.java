@@ -40,6 +40,26 @@ public class OllamaOpponent<S, M> implements Opponent<S, M> {
 		return move;
 	}
 
+	// Volley (salvo) support: the model contributes the first shot; the rest of
+	// the volley comes from the fallback opponent's volley logic, deduplicated.
+	// Asking an LLM for N coordinates at once parses too unreliably to be worth
+	// it, and official salvo rules forbid feedback between picks anyway.
+	@Override
+	public java.util.List<M> chooseVolley(S state, int n) {
+		java.util.LinkedHashSet<M> out = new java.util.LinkedHashSet<>();
+		M first = chooseMove(state);
+		if (first != null) {
+			out.add(first);
+		}
+		for (M m : fallback.chooseVolley(state, n)) {
+			if (out.size() >= n) {
+				break;
+			}
+			out.add(m);
+		}
+		return new java.util.ArrayList<>(out);
+	}
+
 	@Override
 	public MoveInfo lastMoveInfo() {
 		String source = lastFromModel ? client.model() : "fallback:" + fallback.lastMoveInfo().source();

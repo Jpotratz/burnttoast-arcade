@@ -19,10 +19,14 @@
         <h3 class="neon-cyan">DIFFICULTY</h3>
         <label><input type="radio" name="size" value="6"> BEGINNER &nbsp;6 x 6 &nbsp;<span class="dim">x1</span></label>
         <label><input type="radio" name="size" value="9" checked> STANDARD &nbsp;9 x 9 &nbsp;<span class="dim">x1.5</span></label>
+        <label><input type="radio" name="size" value="10"> CLASSIC &nbsp;10 x 10 &nbsp;<span class="dim">official rules &middot; x1.75</span></label>
         <label><input type="radio" name="size" value="12"> ADVANCED &nbsp;12 x 12 &nbsp;<span class="dim">x2</span></label>
         <h3 class="neon-cyan">OPPONENT</h3>
         <label><input type="radio" name="opponent" value="tactical" checked> TACTICAL AI <span class="dim">(hunt &amp; target)</span></label>
         <label><input type="radio" name="opponent" value="ollama"> OLLAMA LLM <span class="dim">(local model)</span></label>
+        <h3 class="neon-cyan">RULE VARIANTS</h3>
+        <label><input type="checkbox" id="salvo"> SALVO <span class="dim">(volley = your surviving ships)</span></label>
+        <label id="notouch-label"><input type="checkbox" id="notouch"> NO-TOUCH placement <span class="dim">(Sea Battle rules, 9x9+)</span></label>
         <h3 class="neon-cyan">OPTIONS</h3>
         <label><input type="checkbox" id="cheat"> Reveal enemy fleet <span class="dim">(disables scoring)</span></label>
         <button id="deploy" class="neon green">DEPLOY &#9654;</button>

@@ -31,12 +31,13 @@ import io.javalin.http.Context;
 
 public class BattleshipModule implements GameModule {
 
-	private static final Set<Integer> BOARD_SIZES = Set.of(6, 9, 12);
+	private static final Set<Integer> BOARD_SIZES = Set.of(6, 9, 10, 12);
+	private static final int MIN_NO_TOUCH_SIZE = 9; // the fleet + water gaps can't fit below this
 	private static final int LEADERBOARD_SIZE = 10;
 	private static final long SESSION_TTL_MS = 2 * 60 * 60 * 1000; // 2h idle
 
 	// ---- request bodies ------------------------------------------------------
-	public record NewGameReq(Integer boardSize, String opponent, Boolean cheat) {
+	public record NewGameReq(Integer boardSize, String opponent, Boolean cheat, Boolean salvo, Boolean noTouch) {
 	}
 
 	public record PlacedShip(int x, int y, boolean horizontal) {
@@ -48,7 +49,12 @@ public class BattleshipModule implements GameModule {
 	public record GameIdReq(String gameId) {
 	}
 
-	public record FireReq(String gameId, Integer x, Integer y) {
+	public record ShotCell(Integer x, Integer y) {
+	}
+
+	// Classic mode sends x/y (or a 1-element shots list); salvo mode sends shots
+	// with exactly volleySize entries.
+	public record FireReq(String gameId, Integer x, Integer y, List<ShotCell> shots) {
 	}
 
 	public record InitialsReq(String gameId, String initials) {
@@ -102,9 +108,15 @@ public class BattleshipModule implements GameModule {
 			throw badRequest("boardSize must be one of " + BOARD_SIZES);
 		}
 		boolean cheat = Boolean.TRUE.equals(req.cheat());
+		boolean salvo = Boolean.TRUE.equals(req.salvo());
+		boolean noTouch = Boolean.TRUE.equals(req.noTouch());
+		if (noTouch && size < MIN_NO_TOUCH_SIZE) {
+			throw badRequest("no-touch placement needs a board of at least " + MIN_NO_TOUCH_SIZE + "x"
+					+ MIN_NO_TOUCH_SIZE);
+		}
 		boolean llm = "ollama".equalsIgnoreCase(req.opponent());
 		GameConfig config = new GameConfig(size, cheat,
-				llm ? GameConfig.OpponentKind.OLLAMA : GameConfig.OpponentKind.HUNT_TARGET);
+				llm ? GameConfig.OpponentKind.OLLAMA : GameConfig.OpponentKind.HUNT_TARGET, salvo, noTouch);
 
 		Opponent<BoardState, Coord> opponent = llm
 				? new OllamaOpponent<>(new OllamaClient(ollamaUrl, ollamaModel), new BattleshipPrompts(),
@@ -134,9 +146,10 @@ public class BattleshipModule implements GameModule {
 			for (int i = 0; i < fleet.length; i++) {
 				PlacedShip p = req.ships().get(i);
 				if (!ShipPlacement.fitsAt(s.playerBoard.shipPositions, s.playerBoard.size, p.x(), p.y(),
-						p.horizontal(), fleet[i].length)) {
+						p.horizontal(), fleet[i].length, s.config.noTouch())) {
 					ShipPlacement.clear(s.playerBoard.shipPositions);
-					throw badRequest(fleet[i].name + " does not fit at (" + p.x() + "," + p.y() + ")");
+					throw badRequest(fleet[i].name + " does not fit at (" + p.x() + "," + p.y() + ")"
+							+ (s.config.noTouch() ? " (no-touch rules)" : ""));
 				}
 				ShipPlacement.place(s.playerBoard.shipPositions, p.x(), p.y(), p.horizontal(), fleet[i].length,
 						fleet[i].icon);
@@ -151,7 +164,7 @@ public class BattleshipModule implements GameModule {
 		BattleshipSession s = require(req.gameId());
 		synchronized (s) {
 			requirePhase(s, BattleshipSession.Phase.PLACING);
-			s.playerBoard.placeFleetRandomly(rng);
+			s.playerBoard.placeFleetRandomly(rng, s.config.noTouch());
 			s.phase = BattleshipSession.Phase.BATTLE;
 			ctx.json(s.stateView(req.gameId()));
 		}
@@ -162,48 +175,97 @@ public class BattleshipModule implements GameModule {
 		BattleshipSession s = require(req.gameId());
 		synchronized (s) {
 			requirePhase(s, BattleshipSession.Phase.BATTLE);
-			if (req.x() == null || req.y() == null || !s.enemyBoard.inBounds(req.x(), req.y())) {
-				throw badRequest("x and y must be on the board");
-			}
-			Shot result = s.enemyBoard.fireAt(req.x(), req.y());
-			if (result == Shot.ALREADY_FIRED) {
-				throw badRequest("already fired at (" + req.x() + "," + req.y() + ")");
-			}
-			Ship hitShip = result == Shot.MISS ? null
-					: s.enemyBoard.fleet.shipForIcon(s.enemyBoard.shipPositions[req.x()][req.y()]);
-			int points = s.scorer.onShotResult(result, hitShip);
-			Map<String, Object> playerShot = BattleshipSession.shotView(req.x(), req.y(), result, hitShip);
+			List<Coord> volley = validateVolley(req, s);
 
-			Map<String, Object> aiShot = null;
+			// Resolve the player's full volley (salvo shots are simultaneous:
+			// even a game-winning hit doesn't cut the volley short).
+			List<Map<String, Object>> playerShots = new java.util.ArrayList<>();
+			int totalPoints = 0;
+			for (Coord c : volley) {
+				Shot result = s.enemyBoard.fireAt(c.x(), c.y());
+				Ship hitShip = result == Shot.MISS ? null
+						: s.enemyBoard.fleet.shipForIcon(s.enemyBoard.shipPositions[c.x()][c.y()]);
+				int points = s.scorer.onShotResult(result, hitShip);
+				totalPoints += points;
+				Map<String, Object> view = new java.util.HashMap<>(
+						BattleshipSession.shotView(c.x(), c.y(), result, hitShip));
+				view.put("points", points);
+				playerShots.add(view);
+			}
+
+			// The AI answers with its own volley (1 shot in classic mode, its
+			// surviving-ship count in salvo). For the Ollama opponent this can
+			// take seconds -- the frontend shows a "thinking" state meanwhile.
+			List<Map<String, Object>> aiShots = new java.util.ArrayList<>();
 			if (s.enemyBoard.fleet.isDestroyed()) {
 				finish(s, true);
 			} else {
-				// The AI's reply rides back on the same response. For the Ollama
-				// opponent this call can take seconds -- the frontend shows a
-				// "thinking" state until this request returns.
-				Coord aiMove = s.opponent.chooseMove(s.playerBoard);
-				if (aiMove != null) {
-					Shot aiResult = s.playerBoard.fireAt(aiMove.x(), aiMove.y());
-					Ship aiHitShip = aiResult == Shot.MISS ? null
-							: s.playerBoard.fleet.shipForIcon(s.playerBoard.shipPositions[aiMove.x()][aiMove.y()]);
-					MoveInfo info = s.opponent.lastMoveInfo();
-					aiShot = new java.util.HashMap<>(
-							BattleshipSession.shotView(aiMove.x(), aiMove.y(), aiResult, aiHitShip));
-					aiShot.put("source", info.source());
-					aiShot.put("millis", info.millis());
-					if (s.playerBoard.fleet.isDestroyed()) {
-						finish(s, false);
+				int aiVolleySize = s.config.salvo() ? s.enemyBoard.fleet.shipsRemaining() : 1;
+				List<Coord> aiVolley = s.opponent.chooseVolley(s.playerBoard, aiVolleySize);
+				MoveInfo info = s.opponent.lastMoveInfo();
+				for (Coord c : aiVolley) {
+					Shot result = s.playerBoard.fireAt(c.x(), c.y());
+					if (result == Shot.ALREADY_FIRED) {
+						continue; // defensive: a buggy opponent never costs the player
 					}
+					Ship hitShip = result == Shot.MISS ? null
+							: s.playerBoard.fleet.shipForIcon(s.playerBoard.shipPositions[c.x()][c.y()]);
+					Map<String, Object> view = new java.util.HashMap<>(
+							BattleshipSession.shotView(c.x(), c.y(), result, hitShip));
+					view.put("source", info.source());
+					view.put("millis", info.millis());
+					aiShots.add(view);
+				}
+				if (s.playerBoard.fleet.isDestroyed()) {
+					finish(s, false);
 				}
 			}
 
 			Map<String, Object> out = new java.util.HashMap<>();
-			out.put("playerShot", playerShot);
-			out.put("aiShot", aiShot);
-			out.put("points", points);
+			out.put("playerShots", playerShots);
+			out.put("aiShots", aiShots);
+			out.put("points", totalPoints);
 			out.put("state", s.stateView(req.gameId()));
 			ctx.json(out);
 		}
+	}
+
+	// Normalize the request into a legal volley: classic mode takes x/y or a
+	// 1-element shots list; salvo mode requires exactly volley-size distinct,
+	// in-bounds, unfired cells.
+	private List<Coord> validateVolley(FireReq req, BattleshipSession s) {
+		List<Coord> volley = new java.util.ArrayList<>();
+		if (req.shots() != null) {
+			for (ShotCell shot : req.shots()) {
+				if (shot.x() == null || shot.y() == null) {
+					throw badRequest("every shot needs x and y");
+				}
+				volley.add(new Coord(shot.x(), shot.y()));
+			}
+		} else if (req.x() != null && req.y() != null) {
+			volley.add(new Coord(req.x(), req.y()));
+		}
+		int expected = s.config.salvo() ? s.playerBoard.fleet.shipsRemaining() : 1;
+		expected = Math.min(expected, unfiredCount(s));
+		if (volley.size() != expected) {
+			throw badRequest("expected exactly " + expected + " shot(s), got " + volley.size());
+		}
+		if (new java.util.HashSet<>(volley).size() != volley.size()) {
+			throw badRequest("volley cells must be distinct");
+		}
+		for (Coord c : volley) {
+			if (!s.enemyBoard.inBounds(c.x(), c.y())) {
+				throw badRequest("(" + c.x() + "," + c.y() + ") is off the board");
+			}
+			if (s.enemyBoard.shotsFired[c.x()][c.y()]) {
+				throw badRequest("already fired at (" + c.x() + "," + c.y() + ")");
+			}
+		}
+		return volley;
+	}
+
+	private int unfiredCount(BattleshipSession s) {
+		return s.enemyBoard.unfiredCells(1).size();
 	}
 
 	private void state(Context ctx) {
@@ -249,8 +311,10 @@ public class BattleshipModule implements GameModule {
 		s.endBonus = s.scorer.onGameEnd(playerWon, s.playerBoard.fleet.shipsRemaining(), s.enemyBoard.shots,
 				s.enemyBoard.hits);
 		s.phase = BattleshipSession.Phase.FINISHED;
-		s.dbRowId = db.recordGame(id(), s.config.boardSize(), s.opponentName, s.config.revealCheat(), playerWon,
-				s.scorer.score(), s.enemyBoard.shots, s.enemyBoard.hits, System.currentTimeMillis() - s.startedAt);
+		String mode = (s.config.salvo() ? "salvo" : "classic") + (s.config.noTouch() ? "+no-touch" : "");
+		s.dbRowId = db.recordGame(id(), s.config.boardSize(), s.opponentName, mode, s.config.revealCheat(),
+				playerWon, s.scorer.score(), s.enemyBoard.shots, s.enemyBoard.hits,
+				System.currentTimeMillis() - s.startedAt);
 		s.qualifiesForLeaderboard = db.qualifiesForTop(id(), s.scorer.score(), LEADERBOARD_SIZE);
 	}
 

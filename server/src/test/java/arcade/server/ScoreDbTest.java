@@ -34,8 +34,8 @@ class ScoreDbTest {
 
 	@Test
 	void recordsAndListsHistoryNewestFirst() {
-		db.recordGame("battleship", 9, "tactical", false, true, 3000, 30, 17, 60_000);
-		db.recordGame("battleship", 6, "ollama", false, false, 800, 20, 8, 45_000);
+		db.recordGame("battleship", 9, "tactical", "classic", false, true, 3000, 30, 17, 60_000);
+		db.recordGame("battleship", 6, "ollama", "classic", false, false, 800, 20, 8, 45_000);
 		List<ScoreDb.ScoreRow> hist = db.history("battleship", 10);
 		assertEquals(2, hist.size());
 		assertEquals(800, hist.get(0).score()); // newest first
@@ -44,11 +44,11 @@ class ScoreDbTest {
 
 	@Test
 	void leaderboardExcludesCheatedAndAnonymousGames() {
-		long fair = db.recordGame("battleship", 9, "tactical", false, true, 5000, 30, 17, 1000);
+		long fair = db.recordGame("battleship", 9, "tactical", "classic", false, true, 5000, 30, 17, 1000);
 		db.setInitials(fair, "JMS");
-		long cheated = db.recordGame("battleship", 9, "tactical", true, true, 9999, 30, 17, 1000);
+		long cheated = db.recordGame("battleship", 9, "tactical", "classic", true, true, 9999, 30, 17, 1000);
 		db.setInitials(cheated, "CHT");
-		db.recordGame("battleship", 9, "tactical", false, true, 7000, 30, 17, 1000); // no initials
+		db.recordGame("battleship", 9, "tactical", "classic", false, true, 7000, 30, 17, 1000); // no initials
 		List<ScoreDb.ScoreRow> top = db.top("battleship", null, 10);
 		assertEquals(1, top.size());
 		assertEquals("JMS", top.get(0).initials());
@@ -57,10 +57,10 @@ class ScoreDbTest {
 	@Test
 	void leaderboardOrdersByScoreAndFiltersByBoardSize() {
 		for (int i = 1; i <= 3; i++) {
-			long id = db.recordGame("battleship", 9, "tactical", false, true, i * 1000, 30, 17, 1000);
+			long id = db.recordGame("battleship", 9, "tactical", "classic", false, true, i * 1000, 30, 17, 1000);
 			db.setInitials(id, "P" + i);
 		}
-		long small = db.recordGame("battleship", 6, "tactical", false, true, 9000, 20, 17, 1000);
+		long small = db.recordGame("battleship", 6, "tactical", "classic", false, true, 9000, 20, 17, 1000);
 		db.setInitials(small, "SML");
 		List<ScoreDb.ScoreRow> all = db.top("battleship", null, 10);
 		assertEquals(9000, all.get(0).score());
@@ -74,7 +74,7 @@ class ScoreDbTest {
 		assertTrue(db.qualifiesForTop("battleship", 1, 3));
 		assertFalse(db.qualifiesForTop("battleship", 0, 3)); // zero never qualifies
 		for (int i = 1; i <= 3; i++) {
-			long id = db.recordGame("battleship", 9, "tactical", false, true, i * 1000, 30, 17, 1000);
+			long id = db.recordGame("battleship", 9, "tactical", "classic", false, true, i * 1000, 30, 17, 1000);
 			db.setInitials(id, "P" + i);
 		}
 		assertFalse(db.qualifiesForTop("battleship", 999, 3)); // below the floor
@@ -83,7 +83,7 @@ class ScoreDbTest {
 
 	@Test
 	void gamesAreNamespacedByGameId() {
-		long id = db.recordGame("chess", 9, "engine", false, true, 4000, 1, 1, 1000);
+		long id = db.recordGame("chess", 9, "engine", "classic", false, true, 4000, 1, 1, 1000);
 		db.setInitials(id, "CHS");
 		assertTrue(db.top("battleship", null, 10).isEmpty());
 		assertEquals(1, db.top("chess", null, 10).size());

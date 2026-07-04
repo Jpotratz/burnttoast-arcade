@@ -95,7 +95,7 @@ $("deploy").addEventListener("click", async () => {
 // Screen 2: placement (local state; submitted in one POST on START BATTLE)
 // ---------------------------------------------------------------------------
 
-const place = { cells: null, grid: null, fleet: [], idx: 0, horizontal: true, placements: [] };
+const place = { cells: null, grid: null, fleet: [], idx: 0, horizontal: true, placements: [], hover: null };
 
 function startPlacement() {
   place.fleet = game.yourFleet;
@@ -106,8 +106,8 @@ function startPlacement() {
   place.cells = buildBoard($("place-board"), game.size, true);
   for (const row of place.cells) {
     for (const cell of row) {
-      cell.addEventListener("mouseenter", () => ghost(cell, true));
-      cell.addEventListener("mouseleave", () => ghost(cell, false));
+      cell.addEventListener("mouseenter", () => { place.hover = cell; ghost(cell, true); });
+      cell.addEventListener("mouseleave", () => { place.hover = null; ghost(cell, false); });
       cell.addEventListener("click", () => placeShip(Number(cell.dataset.x), Number(cell.dataset.y)));
     }
   }
@@ -153,6 +153,13 @@ function placeShip(x, y) {
   place.idx++;
   $("start-battle").disabled = currentShip() !== null;
   placePrompt();
+  refreshGhost(); // preview the NEXT ship immediately, without moving the mouse
+}
+
+// Re-render the ghost under the current cursor position (rotate, place, clear
+// all change what the preview should show while the mouse stays put).
+function refreshGhost() {
+  if (place.hover) ghost(place.hover, true);
 }
 
 function placePrompt() {
@@ -192,11 +199,12 @@ function randomizePlacement() {
   }
 }
 
-$("rotate").addEventListener("click", () => { place.horizontal = !place.horizontal; placePrompt(); });
+$("rotate").addEventListener("click", () => { place.horizontal = !place.horizontal; placePrompt(); refreshGhost(); });
 document.addEventListener("keydown", (e) => {
   if (e.key.toLowerCase() === "r" && !$("screen-place").hidden) {
     place.horizontal = !place.horizontal;
     placePrompt();
+    refreshGhost();
   }
 });
 $("clear").addEventListener("click", clearPlacement);

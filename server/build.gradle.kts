@@ -25,8 +25,12 @@ tasks.register<Jar>("fatJar") {
     manifest {
         attributes["Main-Class"] = "arcade.server.ArcadeServer"
     }
+    // dependsOn + lazy resolution: the classpath jars (e.g. the battleship
+    // engine) must be BUILT before this task runs -- eager .get() at
+    // configuration time loses that dependency and breaks clean builds.
+    dependsOn(configurations.runtimeClasspath)
     from(sourceSets.main.get().output)
-    from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) }) {
+    from({ configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) } }) {
         exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
     }
 }

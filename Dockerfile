@@ -1,10 +1,11 @@
 # BurntToast Arcade -- multi-stage build: Gradle assembles the fat jar, the
 # runtime image is a slim JRE. Data (SQLite) lives on the /data volume.
 
-FROM gradle:8.14-jdk21 AS build
+FROM eclipse-temurin:21-jdk AS build
 WORKDIR /src
 COPY . .
-RUN gradle :server:fatJar --no-daemon
+# The wrapper pins the same Gradle version used locally and in CI.
+RUN ./gradlew :server:fatJar --no-daemon
 
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Battleship — BurntToast Arcade</title>
+  <link rel="stylesheet" href="/assets/theme.css">
+  <link rel="stylesheet" href="battleship.css">
+</head>
+<body>
+  <a id="back" href="/">&#9664; arcade</a>
+
+  <!-- Screen 1: setup -->
+  <section id="screen-setup" class="screen">
+    <h1 class="neon-cyan">BATTLESHIP</h1>
+    <p class="neon-magenta">// neon fleet command</p>
+    <div class="setup-grid">
+      <div class="panel">
+        <h3 class="neon-cyan">DIFFICULTY</h3>
+        <label><input type="radio" name="size" value="6"> BEGINNER &nbsp;6 x 6 &nbsp;<span class="dim">x1</span></label>
+        <label><input type="radio" name="size" value="9" checked> STANDARD &nbsp;9 x 9 &nbsp;<span class="dim">x1.5</span></label>
+        <label><input type="radio" name="size" value="12"> ADVANCED &nbsp;12 x 12 &nbsp;<span class="dim">x2</span></label>
+        <h3 class="neon-cyan">OPPONENT</h3>
+        <label><input type="radio" name="opponent" value="tactical" checked> TACTICAL AI <span class="dim">(hunt &amp; target)</span></label>
+        <label><input type="radio" name="opponent" value="ollama"> OLLAMA LLM <span class="dim">(local model)</span></label>
+        <h3 class="neon-cyan">OPTIONS</h3>
+        <label><input type="checkbox" id="cheat"> Reveal enemy fleet <span class="dim">(disables scoring)</span></label>
+        <button id="deploy" class="neon green">DEPLOY &#9654;</button>
+      </div>
+      <div class="panel">
+        <h3 class="neon-yellow">HIGH SCORES</h3>
+        <table class="scores" id="leaderboard"><tbody></tbody></table>
+        <p class="dim" id="no-scores" hidden>No scores yet — be the first.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Screen 2: placement -->
+  <section id="screen-place" class="screen" hidden>
+    <h2 class="neon-cyan">PLACE YOUR FLEET</h2>
+    <div class="place-grid">
+      <div id="place-board" class="board"></div>
+      <div class="panel controls">
+        <p id="place-prompt"></p>
+        <button id="rotate" class="neon">ROTATE (R)</button>
+        <button id="randomize" class="neon yellow">RANDOMIZE</button>
+        <button id="clear" class="neon magenta">CLEAR</button>
+        <button id="start-battle" class="neon green" disabled>START BATTLE &#9654;</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Screen 3: battle -->
+  <section id="screen-battle" class="screen" hidden>
+    <div id="banner" class="neon-cyan">YOUR TURN — fire at the enemy waters</div>
+    <div class="battle-grid">
+      <div>
+        <h3 class="neon-cyan board-title">YOUR FLEET</h3>
+        <div id="your-board" class="board"></div>
+      </div>
+      <div>
+        <h3 class="neon-cyan board-title">ENEMY WATERS</h3>
+        <div id="enemy-board" class="board"></div>
+      </div>
+      <div class="panel side">
+        <h3 class="neon-cyan">BATTLESHIP</h3>
+        <div id="stat-score" class="stat neon-yellow"></div>
+        <div id="stat-yours" class="stat neon-green"></div>
+        <div id="stat-enemy" class="stat neon-red"></div>
+        <div id="stat-accuracy" class="stat neon-cyan"></div>
+        <div class="log-title">YOU</div>
+        <div id="log-you" class="log neon-cyan"></div>
+        <div class="log-title">ENEMY AI</div>
+        <div id="log-ai" class="log neon-magenta"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- End overlay -->
+  <div id="overlay" hidden>
+    <div class="panel end-card">
+      <h1 id="end-title"></h1>
+      <p id="end-sub" class="neon-cyan"></p>
+      <div id="end-score" class="neon-yellow"></div>
+      <div id="end-bonus" class="neon-magenta"></div>
+      <div id="initials-entry" hidden>
+        <p class="neon-green">NEW HIGH SCORE — enter your initials</p>
+        <input id="initials" maxlength="3" autocomplete="off" spellcheck="false">
+        <button id="submit-initials" class="neon green">SAVE</button>
+      </div>
+      <div id="end-board" hidden>
+        <h3 class="neon-yellow">HIGH SCORES</h3>
+        <table class="scores" id="end-leaderboard"><tbody></tbody></table>
+      </div>
+      <button id="play-again" class="neon">PLAY AGAIN</button>
+    </div>
+  </div>
+
+  <div id="popups"></div>
+  <script src="battleship.js"></script>
+</body>
+</html>

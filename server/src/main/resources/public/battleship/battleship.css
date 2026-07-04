@@ -1,0 +1,90 @@
+/* Battleship page styles, on top of the shared arcade theme. */
+
+body { padding: 20px; }
+#back { position: fixed; top: 14px; left: 16px; color: var(--text-dim); text-decoration: none; font-size: 13px; }
+#back:hover { color: var(--cyan); }
+
+.screen { max-width: 1200px; margin: 0 auto; text-align: center; }
+.screen > h1 { font-size: 44px; margin: 12px 0 0; }
+.screen > h2 { font-size: 28px; }
+.dim { color: var(--text-dim); font-size: 0.85em; }
+
+/* ---- setup ---- */
+.setup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; max-width: 860px;
+              margin: 28px auto; text-align: left; }
+.setup-grid label { display: block; padding: 6px 2px; font-size: 15px; }
+.setup-grid h3 { margin: 14px 0 6px; font-size: 15px; }
+#deploy { margin-top: 18px; width: 100%; }
+
+/* ---- boards ---- */
+.board { display: grid; gap: 3px; justify-content: center; align-content: start;
+         --tile: 42px; margin: 0 auto; }
+.board .lbl { width: var(--tile); height: var(--tile); display: flex; align-items: center;
+              justify-content: center; color: var(--text-dim); font-weight: bold;
+              font-size: calc(var(--tile) * 0.38); }
+.cell { width: var(--tile); height: var(--tile); background: var(--water);
+        border: 1.5px solid var(--grid); border-radius: 9px; position: relative;
+        display: flex; align-items: center; justify-content: center;
+        transition: transform 90ms, box-shadow 90ms; }
+.board.clickable .cell:not(.spent):hover { border-color: var(--cyan);
+        box-shadow: 0 0 12px var(--cyan); transform: scale(1.08); cursor: crosshair; z-index: 2; }
+
+.cell.ship { background: var(--ship-fill); border-color: var(--ship);
+             box-shadow: 0 0 8px rgba(176, 76, 255, 0.5); }
+.cell.ship::after { content: ""; width: 52%; height: 52%; border-radius: 30%;
+             background: var(--ship); box-shadow: 0 0 6px var(--ship); animation: pop 200ms ease-out; }
+
+.cell.miss::after { content: ""; width: 30%; height: 30%; border-radius: 50%;
+             background: var(--miss); border: 1.5px solid #a9c6e6; animation: pop 200ms ease-out; }
+
+.cell.hit { background: #58252e; border-color: var(--red); }
+.cell.hit::after { content: "\2715"; color: var(--red); font-size: calc(var(--tile) * 0.62);
+             font-weight: bold; text-shadow: 0 0 10px var(--red); animation: pop 200ms ease-out; }
+.cell.sunk { background: #3a1218; border-color: #7a1f2a; }
+.cell.sunk::after { color: #ff8b96; }
+
+/* placement ghost preview */
+.cell.ghost-ok  { background: rgba(56, 224, 123, 0.35); border-color: var(--green); }
+.cell.ghost-bad { background: rgba(255, 77, 94, 0.35);  border-color: var(--red); }
+
+@keyframes pop { from { transform: scale(0.15); } to { transform: scale(1); } }
+
+/* ---- placement layout ---- */
+.place-grid { display: flex; gap: 28px; justify-content: center; align-items: flex-start; margin-top: 20px; }
+.controls { width: 280px; text-align: left; }
+.controls button { display: block; width: 100%; margin: 8px 0; }
+#place-prompt { min-height: 110px; white-space: pre-line; font-size: 14px; }
+
+/* ---- battle layout ---- */
+#banner { font-size: 24px; font-weight: bold; margin: 10px 0 18px; min-height: 32px; }
+#banner.thinking { animation: pulse 1.3s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.35; } }
+.battle-grid { display: flex; gap: 26px; justify-content: center; align-items: flex-start; }
+.board-title { margin: 0 0 8px; font-size: 15px; }
+.side { width: 300px; text-align: left; }
+.side h3 { margin-top: 0; }
+.stat { font-size: 15px; font-weight: bold; padding: 2px 0; }
+.log-title { color: var(--text-dim); font-size: 12px; font-weight: bold; margin-top: 12px; }
+.log { font-size: 13px; min-height: 34px; }
+
+/* ---- end overlay ---- */
+#overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.8); display: flex;
+           align-items: center; justify-content: center; animation: fadein 260ms; z-index: 10; }
+#overlay[hidden] { display: none; }
+@keyframes fadein { from { opacity: 0; } }
+.end-card { text-align: center; min-width: 420px; max-width: 560px; padding: 36px; }
+.end-card h1 { font-size: 56px; margin: 0 0 6px; }
+#end-score { font-size: 28px; font-weight: bold; margin: 14px 0 2px; }
+#end-bonus { font-size: 13px; margin-bottom: 12px; }
+#initials { width: 90px; font-family: inherit; font-size: 26px; text-align: center;
+            text-transform: uppercase; letter-spacing: 6px; background: var(--water);
+            color: var(--yellow); border: 2px solid var(--yellow); border-radius: 8px; padding: 6px; }
+#initials-entry { margin: 14px 0; }
+#end-board { margin: 16px 0; }
+#play-again { margin-top: 10px; }
+
+/* floating +points popups */
+#popups { position: fixed; inset: 0; pointer-events: none; z-index: 20; }
+.popup { position: absolute; font-weight: bold; font-size: 20px; color: var(--yellow);
+         text-shadow: 0 0 10px var(--yellow); animation: rise 900ms ease-out forwards; }
+@keyframes rise { to { transform: translateY(-46px); opacity: 0; } }

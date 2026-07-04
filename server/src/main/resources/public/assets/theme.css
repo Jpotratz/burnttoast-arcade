@@ -1,0 +1,75 @@
+/* BurntToast Arcade -- shared neon theme. Every game page pulls this first and
+   layers its own styles on top, so the whole portal keeps one look. */
+
+:root {
+  --bg: #0b0e17;
+  --panel: #121627;
+  --cyan: #25e7ff;
+  --magenta: #ff3ea5;
+  --green: #38e07b;
+  --yellow: #ffd23e;
+  --red: #ff4d5e;
+  --water: #0f1c34;
+  --grid: #1f6f8b;
+  --miss: #6f8bb0;
+  --ship: #b04cff;
+  --ship-fill: #2a1533;
+  --text: #c9e9ff;
+  --text-dim: #7fbfe0;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Consolas, "Cascadia Mono", monospace;
+}
+
+h1, h2, h3 { font-weight: bold; letter-spacing: 0.04em; }
+
+.neon-cyan    { color: var(--cyan);    text-shadow: 0 0 12px var(--cyan); }
+.neon-magenta { color: var(--magenta); text-shadow: 0 0 10px var(--magenta); }
+.neon-green   { color: var(--green);   text-shadow: 0 0 12px var(--green); }
+.neon-yellow  { color: var(--yellow);  text-shadow: 0 0 10px var(--yellow); }
+.neon-red     { color: var(--red);     text-shadow: 0 0 12px var(--red); }
+
+.panel {
+  background: var(--panel);
+  border: 2px solid var(--cyan);
+  border-radius: 14px;
+  box-shadow: 0 0 14px rgba(37, 231, 255, 0.25);
+  padding: 16px;
+}
+
+button.neon {
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: bold;
+  color: var(--cyan);
+  background: #0e1424;
+  border: 2px solid var(--cyan);
+  border-radius: 8px;
+  padding: 9px 18px;
+  cursor: pointer;
+  box-shadow: 0 0 8px rgba(37, 231, 255, 0.4);
+  transition: background 120ms, transform 80ms;
+}
+button.neon:hover:not(:disabled) { background: #182238; }
+button.neon:active:not(:disabled) { transform: scale(0.97); }
+button.neon:disabled { opacity: 0.35; cursor: default; }
+button.neon.magenta { color: var(--magenta); border-color: var(--magenta); box-shadow: 0 0 8px rgba(255, 62, 165, 0.4); }
+button.neon.green   { color: var(--green);   border-color: var(--green);   box-shadow: 0 0 8px rgba(56, 224, 123, 0.4); }
+button.neon.yellow  { color: var(--yellow);  border-color: var(--yellow);  box-shadow: 0 0 8px rgba(255, 210, 62, 0.4); }
+
+label { cursor: pointer; }
+input[type="radio"], input[type="checkbox"] { accent-color: var(--cyan); cursor: pointer; }
+
+table.scores { border-collapse: collapse; width: 100%; font-size: 14px; }
+table.scores th { color: var(--text-dim); text-align: left; padding: 4px 10px; border-bottom: 1px solid var(--grid); }
+table.scores td { padding: 4px 10px; }
+table.scores tr:nth-child(odd) td { background: rgba(31, 111, 139, 0.12); }
+table.scores td.rank { color: var(--yellow); }
+table.scores td.score { color: var(--cyan); text-align: right; }
